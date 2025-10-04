@@ -33,7 +33,7 @@ rclone config
 Sync this with the remote data repository to push or pull any changes to data, results, or other large files. 
 Run this at the start and end of your work session to keep everything up to date.
 ```bash
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR
+rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
 ```
 
 ## Create the Dataset from Scratch
@@ -43,7 +43,7 @@ To download preprocessed data, simply run:
 ```bash
 mkdir data
 export CONTEXTPERT_DATA_DIR=data  # or your data path
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR
+rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
 ```
 
 For debugging, consider making a smaller version of the dataset with the first 1000 rows

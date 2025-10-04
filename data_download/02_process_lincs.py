@@ -58,3 +58,10 @@ merged_df = pd.merge(merged_df, sig_metrics[['distil_cc_q75', 'pct_self_rank_q25
 
 print('Saving processed LINCS data to', os.path.join(data_dir, 'full_lincs.csv'))
 merged_df.to_csv(os.path.join(data_dir, 'full_lincs.csv'), index=False)
+# Variations from original full_lincs.csv: 
+# - pert_dose_unit
+#   - current: um 
+#   - regenerated: μM
+# - pert_time
+#   - current: "6"
+#   - regenerated: "6.0"
