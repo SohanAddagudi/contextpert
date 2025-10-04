@@ -14,6 +14,7 @@ The raw data can be found at the Gene Expression Omnibus (GEO) under accession n
         - download the perturbation info (contains smiles): `GSE92742_Broad_LINCS_pert_info.txt.gz`
         - download the inst info: `GSE92742_Broad_LINCS_inst_info.txt.gz`
         - download the sig metrics: `GSE92742_Broad_LINCS_sig_metrics.txt.gz`
+        - make sure to 'gunzip' all the files to decompress
 
 2.  **Filter/Clean the Data**: Run the code in the `data_process.ipynb` file. This code will:
     - Read in gctx data file in a memory efficient manner as a pandas dataframe
