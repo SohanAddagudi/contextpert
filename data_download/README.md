@@ -153,9 +153,9 @@ Get individual gene embeddings and cell-level average embeddings using AIDO.Cell
 We use cell-level averages to represent cell line contexts, and gene-level embeddings to represent gene or target contexts.
 
 ```bash
-python 99_aido_cell_embedding.py --input $CONTEXTPERT_DATA_DIR/ctrls_symbols.csv --output_base $CONTEXTPERT_DATA_DIR/aido_cell_embeddings\ \(updated\) --model aido_cell_3m
-python 99_aido_cell_embedding.py --input $CONTEXTPERT_DATA_DIR/ctrls_symbols.csv --output_base $CONTEXTPERT_DATA_DIR/aido_cell_embeddings\ \(updated\) --model aido_cell_10m
-python 99_aido_cell_embedding.py --input $CONTEXTPERT_DATA_DIR/ctrls_symbols.csv --output_base $CONTEXTPERT_DATA_DIR/aido_cell_embeddings\ \(updated\) --model aido_cell_100m
+python 99_aido_cell_embedding.py --input $CONTEXTPERT_DATA_DIR/ctrls_symbols.csv --output_base $CONTEXTPERT_DATA_DIR/aido_cell_embeddings --model aido_cell_3m
+python 99_aido_cell_embedding.py --input $CONTEXTPERT_DATA_DIR/ctrls_symbols.csv --output_base $CONTEXTPERT_DATA_DIR/aido_cell_embeddings --model aido_cell_10m
+python 99_aido_cell_embedding.py --input $CONTEXTPERT_DATA_DIR/ctrls_symbols.csv --output_base $CONTEXTPERT_DATA_DIR/aido_cell_embeddings --model aido_cell_100m
 ```
 
 > Note: Input CSV's first column must be an ID, and the remaining columns must be gene symbols.
