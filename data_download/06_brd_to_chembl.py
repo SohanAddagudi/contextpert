@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import logging
@@ -222,9 +223,10 @@ class BRDtoChEMBLMapper:
         }
 
 
-def main():
-    input_path = 'path/to/lincs_dataset.csv'
-    output_path = 'output_path/full_lincs_with_chembl.csv'
+def main(): 
+    data_dir = os.environ['CONTEXTPERT_DATA_DIR']
+    input_path = os.path.join(data_dir, "full_lincs.csv")
+    output_path = os.path.join(data_dir, "full_lincs_with_chembl.csv")
     
     logger.info(f"Loading data from {input_path}")
     df = pd.read_csv(input_path)
