@@ -58,6 +58,18 @@ merged_df = pd.merge(merged_df, sig_metrics[['distil_cc_q75', 'pct_self_rank_q25
 
 print('Saving processed LINCS data to', os.path.join(data_dir, 'full_lincs.csv'))
 merged_df.to_csv(os.path.join(data_dir, 'full_lincs.csv'), index=False)
+
+#SAVE PERTURBATIONS TYPES AS SEPARATE CSVS
+pert_type_col = 'pert_type'
+
+# Loop through each unique pert_type and save as separate CSV
+for pert in merged_df[pert_type_col].unique():
+    subset = merged_df[merged_df[pert_type_col] == pert]
+    filename = os.path.join(data_dir, f"{pert}.csv")
+    subset.to_csv(filename, index=False)
+
+print("Separate pert_type CSVs have been created")
+
 # Variations from original full_lincs.csv: 
 # - pert_dose_unit
 #   - current: um 
