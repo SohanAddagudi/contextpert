@@ -21,11 +21,15 @@ GCTX_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_Level3_INF
 LANDMARK_GENE_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_gene_info_delta_landmark.txt')
 SIG_INFO_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_sig_info.txt')
 SIG_METRICS_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_sig_metrics.txt')
+PERT_INFO_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_pert_info.txt')
 
 # Outputs to processed data directory
 FULL_LINCS_OUTFILE = Path(DATA_DIR) / 'full_lincs.csv'
+TRT_CP_FILE = Path(DATA_DIR) / 'trt_cp.csv' 
 PROCESSED_CTRLS_OUTFILE = Path(DATA_DIR) / 'ctrls_entrez_avg.csv'
 FINAL_SYMBOLS_OUTFILE = Path(DATA_DIR) / 'ctrls_symbols_avg.csv'
+TRT_CP_SMILES_OUTFILE = Path(DATA_DIR) / 'trt_cp_smiles.csv' 
+
 
 # --- Processing Parameters ---
 CHUNK_SIZE = 100
@@ -173,6 +177,38 @@ def map_entrez_to_symbols(infile: Path, outfile: Path) -> None:
     outfile.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(outfile, index=False)
 
+def add_smiles_to_compounds(
+    pert_info_file: str, 
+    trt_cp_infile: Path, 
+    outfile: Path
+) -> None:
+    """
+    Adds canonical SMILES strings to the compound perturbation data (trt_cp).
+    """
+    print("\n--- Part 4: Adding SMILES data to Compound Perturbations ---")
+    
+    # Read perturbation info and filter for compound treatments
+    print(f"Loading perturbation info from: {pert_info_file}")
+    df_info = pd.read_csv(pert_info_file, sep='\t')
+    smiles_df = df_info[df_info['pert_type'] == 'trt_cp']
+
+    # Read the compound expression data generated in Part 1
+    print(f"Loading compound expression data from: {trt_cp_infile}")
+    pert_df = pd.read_csv(trt_cp_infile, engine='pyarrow')
+
+    # Merge SMILES data into the expression dataframe
+    print("Merging SMILES data...")
+    smiles_subset = smiles_df[['pert_id', 'canonical_smiles']]
+    pert_df = pert_df.merge(smiles_subset, on='pert_id', how='left')
+
+    # Filter out entries with bad SMILES strings and save
+    bad_smiles = ['-666', 'restricted']
+    pert_df = pert_df[~pert_df['canonical_smiles'].isin(bad_smiles)].reset_index(drop=True)
+
+    print(f"Final shape of compound data with SMILES: {pert_df.shape}")
+    pert_df.to_csv(outfile, index=False)
+
+
 # ===================================================================
 # 3. Main Execution Block
 # ===================================================================
@@ -198,6 +234,12 @@ if __name__ == "__main__":
     map_entrez_to_symbols(
         infile=PROCESSED_CTRLS_OUTFILE,
         outfile=FINAL_SYMBOLS_OUTFILE
+    )
+    
+    add_smiles_to_compounds(
+        pert_info_file=PERT_INFO_FILE,
+        trt_cp_infile=TRT_CP_FILE,
+        outfile=TRT_CP_SMILES_OUTFILE
     )
 
     print("\n Pipeline finished")
