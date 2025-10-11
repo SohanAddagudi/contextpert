@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
 import warnings
 
-from chembl_utils import canonicalize_smiles
+from contextpert.utils import canonicalize_smiles
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 

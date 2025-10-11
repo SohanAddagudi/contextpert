@@ -1,5 +1,0 @@
-pandas==2.3.0
-rdkit==2025.3.3
-pyarrow==20.0.0
-tqdm
-mygene

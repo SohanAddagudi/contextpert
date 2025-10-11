@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contextpert"
+version = "0.1.0"
+description = "Benchmarks and methods for virtual screening on cellular systems"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "Caleb Ellington", email = "cellingt@cs.cmu.edu"},
+    {name = "Sohan Addagudi", email = "saddagud@andrew.cmu.edu"},
+    {name = "Jiaqi Wang", email = "jiaqiw18@uw.edu"},
+]
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.20.0",
+    "scikit-learn>=1.0.0",
+    "rdkit>=2023.0.0",
+    "tqdm>=4.60.0",
+    "requests>=2.25.0",
+    "pyarrow>=20.0.0",
+    "mygene>=3.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+]
+
+[tool.setuptools]
+packages = ["contextpert"]

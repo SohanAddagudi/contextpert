@@ -5,7 +5,7 @@ from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
 from tqdm import tqdm
 
-from evaluate import submit_sm_disease_cohesion
+from contextpert import submit_sm_disease_cohesion
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
