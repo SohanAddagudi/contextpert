@@ -1,8 +1,8 @@
 import os
 import pandas as pd
 
-from contextpert import submit_sm_disease_cohesion
-from contextpert.utils import brd_to_chembl_batch, chembl_to_smiles_batch
+from contextpert import submit_drug_disease_cohesion
+from contextpert.utils import canonicalize_smiles
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
@@ -13,11 +13,20 @@ print("="*80)
 print("\nThis example uses gene expression profiles from LINCS L1000 data")
 print("as molecular representations for the evaluation framework.\n")
 
-# Load LINCS L1000 compound perturbation data
+# Load LINCS L1000 compound perturbation data with canonical SMILES
 print(f"Loading LINCS compound perturbation data from: {DATA_DIR}/trt_cp_smiles.csv")
 lincs_df = pd.read_csv(os.path.join(DATA_DIR, 'trt_cp_smiles.csv'))
 
 print(f"Loaded {len(lincs_df):,} perturbation profiles")
+print(f"  Unique BRD compounds: {lincs_df['pert_id'].nunique():,}")
+
+# Filter out invalid SMILES
+print("\nFiltering valid SMILES...")
+bad_smiles = ['-666', 'restricted']
+lincs_df = lincs_df[~lincs_df['canonical_smiles'].isin(bad_smiles)].copy()
+lincs_df = lincs_df[lincs_df['canonical_smiles'].notna()].copy()
+
+print(f"  Remaining samples with valid SMILES: {len(lincs_df):,}")
 print(f"  Unique BRD compounds: {lincs_df['pert_id'].nunique():,}")
 
 # Identify gene expression columns (numeric columns that are Entrez IDs)
@@ -31,58 +40,36 @@ print(f"  Gene expression features: {len(gene_cols)} (landmark genes)")
 # Aggregate expression profiles by BRD ID (average across all perturbations of same compound)
 print("\nAggregating expression profiles by BRD ID...")
 expr_by_brd = (
-    lincs_df.groupby('pert_id')[gene_cols]
-    .mean()
+    lincs_df.groupby('pert_id')[gene_cols + ['canonical_smiles']]
+    .agg({**{col: 'mean' for col in gene_cols}, 'canonical_smiles': 'first'})
     .reset_index()
 )
 
 print(f"Created expression representations for {len(expr_by_brd)} unique BRD compounds")
 
-# Map BRD IDs to ChEMBL IDs
-print("\n" + "="*80)
-print("MAPPING BRD IDs TO ChEMBL IDs")
-print("="*80)
-# Use existing cache from data_download/brd_chembl_cache if available
-cache_dir = './data_download/brd_chembl_cache'
-if not os.path.exists(cache_dir):
-    cache_dir = None
-    print("Note: No existing cache found, will query ChEMBL API (this may take a while)")
-brd_to_chembl_map = brd_to_chembl_batch(
-    expr_by_brd['pert_id'],
-    max_workers=20,
-    cache_dir=cache_dir
-)
+# Canonicalize SMILES
+print("\nCanonicalizing SMILES for consistent comparison...")
+failed_canon = []
 
-# Merge mappings with expression data
-expr_with_chembl = expr_by_brd.merge(
-    brd_to_chembl_map[['brd_id', 'chembl_id']],
-    left_on='pert_id',
-    right_on='brd_id',
-    how='left'
-)
+def safe_canonicalize(smiles):
+    try:
+        return canonicalize_smiles(smiles)
+    except:
+        failed_canon.append(smiles)
+        return None
 
-# Filter to compounds with valid ChEMBL IDs
-expr_with_chembl = expr_with_chembl[expr_with_chembl['chembl_id'].notna()].copy()
-print(f"\nMapped {len(expr_with_chembl)} compounds to ChEMBL IDs")
+expr_by_brd['smiles'] = expr_by_brd['canonical_smiles'].apply(safe_canonicalize)
+expr_by_brd = expr_by_brd[expr_by_brd['smiles'].notna()].copy()
 
-# Convert ChEMBL IDs to SMILES
-print("\n" + "="*80)
-print("CONVERTING ChEMBL IDs TO SMILES")
-print("="*80)
-chembl_ids = expr_with_chembl['chembl_id'].unique().tolist()
-chembl_to_smiles = chembl_to_smiles_batch(chembl_ids, show_progress=True)
+if failed_canon:
+    print(f"  Warning: {len(failed_canon)} SMILES failed canonicalization")
 
-# Add SMILES to dataframe
-expr_with_chembl['smiles'] = expr_with_chembl['chembl_id'].map(chembl_to_smiles)
-
-# Filter to compounds with valid SMILES
-expr_with_chembl = expr_with_chembl[expr_with_chembl['smiles'].notna()].copy()
-print(f"\nObtained SMILES for {len(expr_with_chembl)} compounds")
+print(f"  Final compounds with canonical SMILES: {len(expr_by_brd):,}")
 
 # Prepare prediction dataframe: SMILES + expression features
-pred_data = {'smiles': expr_with_chembl['smiles'].values}
+pred_data = {'smiles': expr_by_brd['smiles'].values}
 for gene_col in gene_cols:
-    pred_data[f'gene_{gene_col}'] = expr_with_chembl[gene_col].values
+    pred_data[f'gene_{gene_col}'] = expr_by_brd[gene_col].values
 
 my_preds = pd.DataFrame(pred_data)
 
@@ -95,9 +82,10 @@ print(my_preds.iloc[:3, :5])  # Show first 3 rows, first 5 columns
 
 # Submit for evaluation
 print("\n" + "="*80)
-print("RUNNING EVALUATION")
+print("RUNNING EVALUATION (LINCS MODE)")
 print("="*80)
+print("Using 'lincs' mode to evaluate only on drugs present in both LINCS and OpenTargets")
 
-results = submit_sm_disease_cohesion(my_preds)
+results = submit_drug_disease_cohesion(my_preds, mode='lincs')
 
 print("\nEvaluation complete! These are results using gene expression profiles from LINCS L1000.")

@@ -11,7 +11,7 @@ from contextpert.utils import canonicalize_smiles
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
 
-def evaluate_sm_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 50]):
+def evaluate_drug_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 50]):
     """Evaluates a small molecule representation in terms of how well it captures disease labels
 
     Uses leave-one-target-signature-out cross-validation: for each drug, hold out all samples with the
@@ -32,6 +32,10 @@ def evaluate_sm_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 50]):
     pred_df['smiles'] = pred_df['smiles'].apply(canonicalize_smiles)
     target_df['smiles'] = target_df['smiles'].apply(canonicalize_smiles)
 
+    # Ensure all smiles from target_df are in pred_df.
+    missing_smiles = target_df[~target_df['smiles'].isin(pred_df['smiles'])]
+    assert missing_smiles.empty, f"Failure: {len(missing_smiles)} SMILES in target_df are missing from pred_df: {missing_smiles['smiles'].tolist()}"
+
     # Get representation columns (all columns except 'smiles')
     repr_cols = [col for col in pred_df.columns if col != 'smiles']
 
@@ -41,8 +45,7 @@ def evaluate_sm_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 50]):
     if len(merged) == 0:
         raise ValueError("No matching SMILES between pred_df and target_df")
 
-    print(f"Evaluating {len(merged)} drugs with {merged['diseaseId'].nunique()} unique diseases "
-          f"and {merged['targets'].nunique()} unique target signatures")
+    print(f"Evaluating {len(merged)} drug indications. {merged['smiles'].nunique()} unique drugs, {merged['targets'].nunique()} unique target signatures, {merged['diseaseId'].nunique()} unique diseases")
 
     # Extract representation matrix
     X = merged[repr_cols].values.astype(np.float32)
@@ -141,25 +144,33 @@ def evaluate_sm_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 50]):
 
     return results
 
-def submit_sm_disease_cohesion(pred_df):
+def submit_drug_disease_cohesion(pred_df, mode='lincs'):
     """Submits predictions against the OpenTargets disease-drug triples dataset
 
     Args:
         pred_df: A dataframe with one 'smiles' column, remaining columns are the representation
+        mode: Evaluation mode - 'full' uses all OpenTargets drugs, 'lincs' filters to LINCS overlap
 
     Returns:
         dict: Evaluation metrics
     """
     # Load the disease-drug triples with target signatures
     # Only includes diseases with 2+ unique target signatures for valid evaluation
-    ref_path = os.path.join(DATA_DIR, 'opentargets/disease_drug_triples_csv/disease_drug_triples.csv')
+    if mode == 'lincs':
+        ref_filename = 'disease_drug_triples_lincs.csv'
+    elif mode == 'full':
+        ref_filename = 'disease_drug_triples.csv'
+    else:
+        raise ValueError(f"Invalid mode: {mode}. Must be 'full' or 'lincs'")
+
+    ref_path = os.path.join(DATA_DIR, 'opentargets/disease_drug_triples_csv', ref_filename)
     disease_drug_df = pd.read_csv(ref_path)
 
     # Prepare target_df format expected by evaluate function
     # Columns: smiles, targets, diseaseId
     target_df = disease_drug_df[['smiles', 'targets', 'diseaseId']].drop_duplicates()
 
-    print(f"\nReference data: {len(target_df)} unique drug-disease associations")
+    print(f"\nReference data (mode={mode}): {len(target_df)} unique drug-disease associations")
     print(f"  Diseases: {target_df['diseaseId'].nunique()}")
     print(f"  Drugs: {target_df['smiles'].nunique()}")
     print(f"  Target signatures: {target_df['targets'].nunique()}")
@@ -187,7 +198,7 @@ def submit_sm_disease_cohesion(pred_df):
     print("="*80)
 
     k_list = [1, 5, 10, 50]
-    results = evaluate_sm_disease_cohesion(pred_df_filtered, target_df, k_list=k_list)
+    results = evaluate_drug_disease_cohesion(pred_df_filtered, target_df, k_list=k_list)
 
     # Print results
     print(f"\nEvaluated {results['n_queries']} queries across {results['n_unique_diseases']} diseases")

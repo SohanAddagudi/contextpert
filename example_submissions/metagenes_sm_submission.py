@@ -4,8 +4,8 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-from contextpert import submit_sm_disease_cohesion
-from contextpert.utils import brd_to_chembl_batch, chembl_to_smiles_batch
+from contextpert import submit_drug_disease_cohesion
+from contextpert.utils import canonicalize_smiles
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
@@ -16,11 +16,20 @@ print("="*80)
 print("\nThis example uses PCA-compressed gene expression profiles (metagenes)")
 print("from LINCS L1000 data as molecular representations.\n")
 
-# Load LINCS L1000 compound perturbation data
+# Load LINCS L1000 compound perturbation data with canonical SMILES
 print(f"Loading LINCS compound perturbation data from: {DATA_DIR}/trt_cp_smiles.csv")
 lincs_df = pd.read_csv(os.path.join(DATA_DIR, 'trt_cp_smiles.csv'))
 
 print(f"Loaded {len(lincs_df):,} perturbation profiles")
+print(f"  Unique BRD compounds: {lincs_df['pert_id'].nunique():,}")
+
+# Filter out invalid SMILES
+print("\nFiltering valid SMILES...")
+bad_smiles = ['-666', 'restricted']
+lincs_df = lincs_df[~lincs_df['canonical_smiles'].isin(bad_smiles)].copy()
+lincs_df = lincs_df[lincs_df['canonical_smiles'].notna()].copy()
+
+print(f"  Remaining samples with valid SMILES: {len(lincs_df):,}")
 print(f"  Unique BRD compounds: {lincs_df['pert_id'].nunique():,}")
 
 # Identify gene expression columns (numeric columns that are Entrez IDs)
@@ -34,8 +43,8 @@ print(f"  Gene expression features: {len(gene_cols)} (landmark genes)")
 # Aggregate expression profiles by BRD ID (average across all perturbations of same compound)
 print("\nAggregating expression profiles by BRD ID...")
 expr_by_brd = (
-    lincs_df.groupby('pert_id')[gene_cols]
-    .mean()
+    lincs_df.groupby('pert_id')[gene_cols + ['canonical_smiles']]
+    .agg({**{col: 'mean' for col in gene_cols}, 'canonical_smiles': 'first'})
     .reset_index()
 )
 
@@ -66,52 +75,40 @@ expr_by_brd_pca = expr_by_brd[['pert_id']].copy()
 for i in range(n_components):
     expr_by_brd_pca[f'metagene_{i}'] = expr_pca[:, i]
 
-# Map BRD IDs to ChEMBL IDs
+# Add canonical SMILES to PCA data
 print("\n" + "="*80)
-print("MAPPING BRD IDs TO ChEMBL IDs")
+print("ADDING SMILES TO METAGENE REPRESENTATIONS")
 print("="*80)
-# Use existing cache from data_download/brd_chembl_cache if available
-cache_dir = './data_download/brd_chembl_cache'
-if not os.path.exists(cache_dir):
-    cache_dir = None
-    print("Note: No existing cache found, will query ChEMBL API (this may take a while)")
-brd_to_chembl_map = brd_to_chembl_batch(
-    expr_by_brd_pca['pert_id'],
-    max_workers=20,
-    cache_dir=cache_dir
-)
-
-# Merge mappings with PCA expression data
-expr_with_chembl = expr_by_brd_pca.merge(
-    brd_to_chembl_map[['brd_id', 'chembl_id']],
-    left_on='pert_id',
-    right_on='brd_id',
+expr_by_brd_pca = expr_by_brd_pca.merge(
+    expr_by_brd[['pert_id', 'canonical_smiles']],
+    on='pert_id',
     how='left'
 )
 
-# Filter to compounds with valid ChEMBL IDs
-expr_with_chembl = expr_with_chembl[expr_with_chembl['chembl_id'].notna()].copy()
-print(f"\nMapped {len(expr_with_chembl)} compounds to ChEMBL IDs")
+# Canonicalize SMILES
+print("Canonicalizing SMILES for consistent comparison...")
+failed_canon = []
 
-# Convert ChEMBL IDs to SMILES
-print("\n" + "="*80)
-print("CONVERTING ChEMBL IDs TO SMILES")
-print("="*80)
-chembl_ids = expr_with_chembl['chembl_id'].unique().tolist()
-chembl_to_smiles = chembl_to_smiles_batch(chembl_ids, show_progress=True)
+def safe_canonicalize(smiles):
+    try:
+        return canonicalize_smiles(smiles)
+    except:
+        failed_canon.append(smiles)
+        return None
 
-# Add SMILES to dataframe
-expr_with_chembl['smiles'] = expr_with_chembl['chembl_id'].map(chembl_to_smiles)
+expr_by_brd_pca['smiles'] = expr_by_brd_pca['canonical_smiles'].apply(safe_canonicalize)
+expr_by_brd_pca = expr_by_brd_pca[expr_by_brd_pca['smiles'].notna()].copy()
 
-# Filter to compounds with valid SMILES
-expr_with_chembl = expr_with_chembl[expr_with_chembl['smiles'].notna()].copy()
-print(f"\nObtained SMILES for {len(expr_with_chembl)} compounds")
+if failed_canon:
+    print(f"  Warning: {len(failed_canon)} SMILES failed canonicalization")
+
+print(f"  Final compounds with canonical SMILES: {len(expr_by_brd_pca):,}")
 
 # Prepare prediction dataframe: SMILES + metagene features
 metagene_cols = [f'metagene_{i}' for i in range(n_components)]
-pred_data = {'smiles': expr_with_chembl['smiles'].values}
+pred_data = {'smiles': expr_by_brd_pca['smiles'].values}
 for col in metagene_cols:
-    pred_data[col] = expr_with_chembl[col].values
+    pred_data[col] = expr_by_brd_pca[col].values
 
 my_preds = pd.DataFrame(pred_data)
 
@@ -124,11 +121,13 @@ print(my_preds.iloc[:3, :6])  # Show first 3 rows, first 6 columns
 
 # Submit for evaluation
 print("\n" + "="*80)
-print("RUNNING EVALUATION")
+print("RUNNING EVALUATION (LINCS MODE)")
 print("="*80)
+print("Using 'lincs' mode to evaluate only on drugs present in both LINCS and OpenTargets")
 
-results = submit_sm_disease_cohesion(my_preds)
+results = submit_drug_disease_cohesion(my_preds, mode='lincs')
 
 print("\nEvaluation complete! These are results using PCA-compressed gene expression (metagenes) from LINCS L1000.")
 print(f"Dimensionality reduction: {len(gene_cols)} genes → {n_components} metagenes")
 print(f"Explained variance: {pca.explained_variance_ratio_.sum():.2%}")
+print("Evaluated on the intersection of LINCS and OpenTargets drugs.")

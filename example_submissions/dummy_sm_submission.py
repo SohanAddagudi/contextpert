@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from contextpert import submit_sm_disease_cohesion
+from contextpert.evaluate import submit_drug_disease_cohesion
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
@@ -22,4 +22,4 @@ for i in range(repr_dim):
 my_preds = pd.DataFrame(pred_data)
 
 # Submit results
-results = submit_sm_disease_cohesion(my_preds)
+results = submit_drug_disease_cohesion(my_preds, mode='lincs')

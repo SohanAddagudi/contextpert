@@ -5,7 +5,7 @@ from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
 from tqdm import tqdm
 
-from contextpert import submit_sm_disease_cohesion
+from contextpert import submit_drug_disease_cohesion
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
@@ -45,4 +45,4 @@ for i in range(n_bits):
 my_preds = pd.DataFrame(pred_data)
 
 # Submit
-results = submit_sm_disease_cohesion(my_preds)
+results = submit_drug_disease_cohesion(my_preds, mode='lincs')
