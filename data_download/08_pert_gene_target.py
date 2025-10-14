@@ -1,80 +1,138 @@
-import pandas as pd
+import os
+import sys
 import mygene
-import io
+import pandas as pd
+from pathlib import Path
+from typing import Dict, List
 
-# 1. Load drug target pairs
-df = pd.read_csv('/home/user/screening2/contextpert/cp_gene/drug_target_pairs.csv')
+# ===================================================================
+# 1. Configuration & Constants
+# ===================================================================
+RAW_DATA_DIR = os.getenv('CONTEXTPERT_RAW_DATA_DIR')
+DATA_DIR = os.getenv('CONTEXTPERT_DATA_DIR')
 
-# 2. Get unique Ensembl IDs to query
-ensg_ids = df['targetId'].unique().tolist()
+PERT_INFO_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_pert_info.txt')
+FULL_LINCS_WITH_CHEMBL_FILE = Path(DATA_DIR) / 'full_lincs_with_chembl.csv'
+DRUG_TARGET_PAIRS_FILE = Path(DATA_DIR) / 'drug_target_pairs.csv'
 
-# 3. Initialize mygene client and perform the query
-mg = mygene.MyGeneInfo()
-gene_info = mg.querymany(ensg_ids, scopes='ensembl.gene', fields='symbol', species='human')
+INST_CHEMBL_FILE = Path(DATA_DIR) / 'inst_chembl.csv'
+PERT_TARGET_OUTFILE = Path(DATA_DIR) / 'pert_target.csv'
 
-# 4. Create a mapping from Ensembl ID to gene symbol
-id_to_symbol_map = {info['query']: info.get('symbol') for info in gene_info if 'symbol' in info}
+PERT_TYPES_TO_KEEP: List[str] = ['trt_oe', 'trt_lig', 'trt_sh', 'trt_cp']
 
-# 5. Create the new 'symbol' column using the map
-df['symbol'] = df['targetId'].map(id_to_symbol_map)
 
-# 6. Drop the old 'targetId' column and reorder
-df = df.drop('targetId', axis=1)
-cols = ['drugId', 'symbol', 'smiles', 'prefName']
-symbols_df = df[cols]
+# ===================================================================
+# 2. Pipeline Functions
+# ===================================================================
 
-# Display the symbols DataFrame
-print("--- Symbols DataFrame ---")
-print(symbols_df)
-print("-" * 25)
+def generate_inst_chembl_mapping(
+    infile: Path,
+    outfile: Path
+) -> None:
+    """Creates a mapping file from instance ID to ChEMBL ID."""
+    print("--- Part 1: Generating inst_id to ChEMBL ID Mapping ---")
+    print(f"Reading full LINCS data with ChEMBL IDs from: {infile}")
+    df = pd.read_csv(infile)
+    mapping_df = df[['inst_id', 'chembl_id', 'pert_id']].copy()
+    
+    outfile.parent.mkdir(parents=True, exist_ok=True)
+    mapping_df.to_csv(outfile, index=False)
+    print(f"Saved inst_id -> chembl_id map to: {outfile}")
 
-# 7. Load pertinfo
-pertinfo = pd.read_csv('/home/user/contextulized/GSE92742_Broad_LINCS_pert_info.txt', sep='\t')
+def create_target_symbol_map(
+    drug_target_file: Path
+) -> pd.DataFrame:
+    """Maps Ensembl gene IDs from the drug-target file to HGNC gene symbols."""
+    print("\n--- Part 2: Mapping Ensembl IDs to Gene Symbols ---")
+    print(f"Loading drug-target pairs from: {drug_target_file}")
+    df = pd.read_csv(drug_target_file)
 
-# Filter the DataFrame by the specified 'pert_type' values
-filtered_df = pertinfo[pertinfo['pert_type'].isin(['trt_oe', 'trt_lig', 'trt_sh', 'trt_cp'])]
+    ensg_ids = df['targetId'].unique().tolist()
+    print(f"Found {len(ensg_ids)} unique Ensembl IDs to query.")
 
-# Select the desired columns
-final_df = filtered_df[['pert_id', 'pert_iname', 'pert_type']].copy()
+    mg = mygene.MyGeneInfo()
+    gene_info = mg.querymany(
+        ensg_ids, scopes='ensembl.gene', fields='symbol', species='human', as_dataframe=False
+    )
 
-# 8. Load inst_chembl
-inst_chembl = pd.read_csv('/home/user/screening2/contextpert/cp_gene/inst_chembl.csv')
-print("\n--- Inst_chembl DataFrame ---")
-print(inst_chembl)
-print("-" * 29)
+    id_to_symbol_map: Dict[str, str] = {
+        info['query']: info.get('symbol')
+        for info in gene_info if 'symbol' in info
+    }
 
-# 9. For trt_cp rows, map pert_id -> chembl_id -> symbol
-symbols_df_unique = symbols_df.drop_duplicates(subset='drugId', keep='first')
+    df['symbol'] = df['targetId'].map(id_to_symbol_map)
+    df = df.drop('targetId', axis=1)
+    cols = ['drugId', 'symbol', 'smiles', 'prefName']
+    symbols_df = df[cols].copy()
+    
+    print("Successfully created drug-to-gene-symbol mapping.")
+    return symbols_df
 
-# Create mapping: pert_id -> chembl_id
-pert_to_chembl = dict(zip(inst_chembl['pert_id'], inst_chembl['chembl_id']))
 
-# Create mapping: chembl_id (drugId) -> symbol
-chembl_to_symbol = dict(zip(symbols_df_unique['drugId'], symbols_df_unique['symbol']))
+def map_perturbations_to_targets(
+    pert_info_file: str,
+    inst_chembl_file: Path,
+    symbols_df: pd.DataFrame,
+    outfile: Path
+) -> None:
+    """Maps compound perturbations (trt_cp) to their gene targets via ChEMBL IDs."""
+    print("\n--- Part 3: Mapping Perturbations to Gene Targets ---")
 
-# Isolate trt_cp rows to work on them
-trt_cp_mask = final_df['pert_type'] == 'trt_cp'
-initial_cp_count = trt_cp_mask.sum()
+    print(f"Loading perturbation info from: {pert_info_file}")
+    pertinfo = pd.read_csv(pert_info_file, sep='\t')
+    filtered_df = pertinfo[pertinfo['pert_type'].isin(PERT_TYPES_TO_KEEP)]
+    final_df = filtered_df[['pert_id', 'pert_iname', 'pert_type']].copy()
 
-# For trt_cp rows, replace pert_iname with the mapped symbol
-final_df.loc[trt_cp_mask, 'pert_iname'] = (
-    final_df.loc[trt_cp_mask, 'pert_id']
-    .map(pert_to_chembl)  # pert_id -> chembl_id
-    .map(chembl_to_symbol)  # chembl_id -> symbol
-)
+    print(f"Loading pert_id to ChEMBL ID map from: {inst_chembl_file}")
+    inst_chembl = pd.read_csv(inst_chembl_file)
 
-final_df.dropna(subset=['pert_iname'], inplace=True)
+    pert_to_chembl = dict(zip(inst_chembl['pert_id'], inst_chembl['chembl_id']))
+    symbols_df_unique = symbols_df.drop_duplicates(subset='drugId', keep='first')
+    chembl_to_symbol = dict(zip(symbols_df_unique['drugId'], symbols_df_unique['symbol']))
 
-# Calculate final stats
-final_cp_count = (final_df['pert_type'] == 'trt_cp').sum()
-removed_count = initial_cp_count - final_cp_count
+    print("Mapping 'trt_cp' perturbations to their gene targets via ChEMBL ID...")
+    trt_cp_mask = final_df['pert_type'] == 'trt_cp'
+    initial_cp_count = trt_cp_mask.sum()
 
-print("\n--- trt_cp Statistics ---")
-print(f"Initial 'trt_cp' count: {initial_cp_count}")
-print(f"Removed (no symbol found): {removed_count}")
-print(f"Final 'trt_cp' count: {final_cp_count}")
+    final_df.loc[trt_cp_mask, 'pert_iname'] = (
+        final_df.loc[trt_cp_mask, 'pert_id']
+        .map(pert_to_chembl)
+        .map(chembl_to_symbol)
+    )
 
-print("\nFinal DataFrame:")
-print(final_df)
+    final_df.dropna(subset=['pert_iname'], inplace=True)
+    final_cp_count = (final_df['pert_type'] == 'trt_cp').sum()
+    removed_count = initial_cp_count - final_cp_count
 
-final_df.to_csv('pert_target.csv', index=False)
+    print("\n--- 'trt_cp' Mapping Statistics ---")
+    print(f"Initial 'trt_cp' count: {initial_cp_count}")
+    print(f"Final 'trt_cp' count after mapping: {final_cp_count}")
+    print(f"Removed (no symbol found): {removed_count}")
+
+    outfile.parent.mkdir(parents=True, exist_ok=True)
+    final_df.to_csv(outfile, index=False)
+    print(f"\nSuccessfully saved final perturbation-target data to: {outfile}")
+
+
+# ===================================================================
+# 3. Main Execution Block
+# ===================================================================
+
+if __name__ == "__main__":
+    generate_inst_chembl_mapping(
+        infile=FULL_LINCS_WITH_CHEMBL_FILE,
+        outfile=INST_CHEMBL_FILE
+    )
+
+    target_symbols_df = create_target_symbol_map(
+        drug_target_file=DRUG_TARGET_PAIRS_FILE
+    )
+
+    map_perturbations_to_targets(
+        pert_info_file=PERT_INFO_FILE,
+        inst_chembl_file=INST_CHEMBL_FILE,
+        symbols_df=target_symbols_df,
+        outfile=PERT_TARGET_OUTFILE
+    )
+
+    print("\nPipeline finished.")
