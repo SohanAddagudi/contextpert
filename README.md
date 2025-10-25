@@ -5,7 +5,7 @@ git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
 cd contextpert/Contextualized
 pip install -e .
 cd ..
-pip install -r requirements.txt
+pip install -e .
 ```
 
 Verify installation by running:
