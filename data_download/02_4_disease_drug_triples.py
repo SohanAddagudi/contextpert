@@ -22,9 +22,7 @@ from pathlib import Path
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.window import Window
 
-# Add parent directory to path to import chembl_utils
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from chembl_utils import chembl_to_smiles_batch
+from contextpert.utils import chembl_to_smiles_batch
 
 REL = "25.06"
 ROOT = os.environ['CONTEXTPERT_RAW_DATA_DIR'] + f"/opentargets/{REL}"
@@ -80,7 +78,7 @@ print(f"\nPhase IV small molecule records: {kd_filt.count():,}")
 # Join with cancer diseases
 cancer_drugs = (
     kd_filt.join(cancers, "diseaseId")
-           .select("diseaseId", "drugId", "targetId", "prefName")
+           .select("diseaseId", "diseaseName", "drugId", "targetId", "prefName")
 )
 
 print(f"\nCancer drug records: {cancer_drugs.count():,}")
@@ -89,13 +87,13 @@ print(f"\nCancer drug records: {cancer_drugs.count():,}")
 print(f"\nCreating target signatures...")
 drug_targets = (
     cancer_drugs
-    .groupBy("diseaseId", "drugId", "prefName")
+    .groupBy("diseaseId", "diseaseName", "drugId", "prefName")
     .agg(
         F.collect_set("targetId").alias("targets_set"),  # collect_set ensures uniqueness
     )
     .withColumn("targets", F.array_sort("targets_set"))  # Sort lexicographically for consistent ordering
     .withColumn("targetSignature", F.concat_ws("|", "targets"))  # Create signature string for grouping
-    .select("diseaseId", "drugId", "prefName", "targetSignature", "targets")
+    .select("diseaseId", "diseaseName", "drugId", "prefName", "targetSignature", "targets")
 )
 
 print(f"\nDisease-drug pairs with target signatures: {drug_targets.count():,}")
@@ -126,7 +124,7 @@ triples_filtered = (
     drug_targets
     .join(valid_diseases, "diseaseId")
     .distinct()
-    .orderBy("diseaseId", "drugId")
+    .orderBy("diseaseId", "diseaseName", "drugId")
 )
 
 print(f"\nFiltered disease-drug triples: {triples_filtered.count():,}")
@@ -183,7 +181,7 @@ df_pandas = df_pandas[df_pandas['smiles'].notna()].copy()
 df_pandas['targets'] = df_pandas['targets'].apply(lambda x: '|'.join(x))
 
 # Reorder columns - keep only targets (drop targetSignature as it's redundant)
-df_pandas = df_pandas[['diseaseId', 'drugId', 'smiles', 'prefName', 'targets']]
+df_pandas = df_pandas[['diseaseId', 'diseaseName', 'drugId', 'smiles', 'prefName', 'targets']]
 
 print(f"\nFinal disease-drug triples with SMILES: {len(df_pandas):,}")
 print(f"  Unique diseases: {df_pandas['diseaseId'].nunique():,}")

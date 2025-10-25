@@ -7,7 +7,7 @@ name = "contextpert"
 version = "0.1.0"
 description = "Benchmarks and methods for virtual screening on cellular systems"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 authors = [
     {name = "Caleb Ellington", email = "cellingt@cs.cmu.edu"},
     {name = "Sohan Addagudi", email = "saddagud@andrew.cmu.edu"},
@@ -21,6 +21,7 @@ dependencies = [
     "tqdm>=4.60.0",
     "requests>=2.25.0",
     "pyarrow>=20.0.0",
+    "pyspark>=3.0.0",
     "mygene>=3.2.0",
     "chembl_webresource_client>=0.10.0",
 ]

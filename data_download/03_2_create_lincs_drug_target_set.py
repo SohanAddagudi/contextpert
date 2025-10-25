@@ -9,7 +9,7 @@ maintains sufficient coverage for meaningful evaluation.
 Input:
     ${CONTEXTPERT_DATA_DIR}/trt_cp_smiles_qc.csv
     ${CONTEXTPERT_DATA_DIR}/trt_sh_qc.csv
-    ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs.csv
+    ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs_filtered.csv
 
 Output:
     ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv

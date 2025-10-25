@@ -7,8 +7,8 @@ present in the LINCS dataset. Ensures the filtered dataset maintains valid
 evaluation structure (all diseases have 2+ unique target signatures).
 
 Input:
-    ${CONTEXTPERT_DATA_DIR}/trt_cp_smiles.csv
-    ${CONTEXTPERT_DATA_DIR}/opentargets/disease_drug_triples_csv/disease_drug_triples.csv
+    ${CONTEXTPERT_DATA_DIR}/trt_cp_smiles_qc.csv
+    ${CONTEXTPERT_DATA_DIR}/opentargets/disease_drug_triples_csv/disease_drug_triples_filtered.csv
 
 Output:
     ${CONTEXTPERT_DATA_DIR}/opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv
@@ -30,7 +30,7 @@ print("CREATING LINCS-FILTERED TARGET SET")
 print("=" * 80)
 
 # Load LINCS data with canonical SMILES
-lincs_path = os.path.join(DATA_DIR, 'trt_cp_smiles.csv')
+lincs_path = os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv')
 print(f"\nLoading LINCS data from: {lincs_path}")
 lincs_df = pd.read_csv(lincs_path)
 
@@ -70,7 +70,7 @@ print(f"  Unique canonical SMILES: {len(lincs_smiles_set):,}")
 # Load OpenTargets disease-drug triples
 opentargets_path = os.path.join(
     DATA_DIR,
-    'opentargets/disease_drug_triples_csv/disease_drug_triples.csv'
+    'opentargets/disease_drug_triples_csv/disease_drug_triples_filtered.csv'
 )
 print(f"\nLoading OpenTargets disease-drug triples from: {opentargets_path}")
 opentargets_df = pd.read_csv(opentargets_path)
