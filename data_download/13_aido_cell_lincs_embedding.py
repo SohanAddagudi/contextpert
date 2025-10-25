@@ -7,6 +7,7 @@ from tqdm import tqdm
 import mygene
 import sys
 import gc
+import argparse
 from typing import List, Set, Dict
 
 # Add AIDO.Cell path - must be done before importing cell_utils
@@ -16,25 +17,54 @@ from modelgenerator.tasks import Embed
 
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Generate AIDO.Cell embeddings for LINCS data')
+parser.add_argument('--backbone', type=str, required=True,
+                    choices=['aido_cell_3m', 'aido_cell_10m', 'aido_cell_100m'],
+                    help='AIDO.Cell backbone model to use')
+parser.add_argument('--chunk-size', type=int, default=10000,
+                    help='Number of rows to process per chunk (default: 10000)')
+args = parser.parse_args()
 
-lincs_path = os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv')
-# lincs_path = os.path.join(DATA_DIR, 'lincs_small.csv')
-print(f"\nLoading compound perturbation data from: {lincs_path}")
-lincs_df = pd.read_csv(lincs_path)
+input_file = 'trt_cp_smiles.csv'
+lincs_path = os.path.join(DATA_DIR, input_file)
+print(f"\nProcessing compound perturbation data from: {lincs_path}")
+print(f"Chunk size: {args.chunk_size} rows")
 
-# Identify gene expression columns (Entrez IDs)
+# Initialize AIDO.Cell model first (before processing chunks)
+print("\nInitializing AIDO.Cell model...")
+batch_size = 32
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+backbone = args.backbone
+
+# Determine embedding dimension
+if backbone == 'aido_cell_3m':
+    embedding_dim = 128
+elif backbone == 'aido_cell_10m':
+    embedding_dim = 256
+elif backbone == 'aido_cell_100m':
+    embedding_dim = 640
+
+print(f"  Loading {backbone} model on {device}...")
+model = Embed.from_config({
+    "model.backbone": backbone,
+    "model.batch_size": batch_size,
+}).eval()
+model = model.to(device).to(torch.bfloat16)
+print(f"  Model loaded successfully!")
+print(f"  Embedding dimension: {embedding_dim}\n")
+
+# Get gene mapping (do this once upfront)
+print("Setting up gene ID to symbol mapping...")
+# Read just the header to get gene columns
+header_df = pd.read_csv(lincs_path, nrows=0)
 metadata_cols = ['inst_id', 'cell_id', 'pert_id', 'pert_type', 'pert_dose',
                  'pert_dose_unit', 'pert_time', 'sig_id', 'distil_cc_q75',
                  'pct_self_rank_q25', 'canonical_smiles']
-                #  'pct_self_rank_q25']
-gene_cols = [col for col in lincs_df.columns if col not in metadata_cols]
-metadata_df = lincs_df[metadata_cols]
+gene_cols = [col for col in header_df.columns if col not in metadata_cols]
+print(f"  Found {len(gene_cols)} gene expression features")
 
-print(f"  Gene expression features: {len(gene_cols)} (landmark genes as Entrez IDs)")
-
-# Convert Entrez IDs to gene symbols for AIDO.Cell
-# Identify columns that are Entrez IDs (represented as numeric strings)
-# Query mygene.info API
+# Query mygene.info API for gene symbol mapping
 mg = mygene.MyGeneInfo()
 gene_info = mg.querymany(
     gene_cols,
@@ -56,105 +86,140 @@ mapped_gene_cols = [col for col in gene_cols if col in id_to_symbol_map]
 unmapped = set(gene_cols) - set(mapped_gene_cols)
 if unmapped:
     print(f"  Warning: {len(unmapped)} genes not found in mapping (out of {len(gene_cols)})")
-print(f"  Successfully mapped {len(mapped_gene_cols)}/{len(gene_cols)} genes to symbols")
+print(f"  Successfully mapped {len(mapped_gene_cols)}/{len(gene_cols)} genes to symbols\n")
 
-# Rename DataFrame columns 
-lincs_df.rename(columns=id_to_symbol_map, inplace=True)
-
-# Prepare expression data with gene symbols - keep only necessary columns
-print("\nPreparing expression matrix...")
 symbol_cols = [id_to_symbol_map[col] for col in mapped_gene_cols]
 
-# Extract data directly to avoid extra copies - use canonicalized SMILES
-cell_ids = lincs_df['inst_id'].values
-pert_ids = lincs_df['pert_id'].values
+# Prepare output directory for chunks
+input_filename_wo_ext = os.path.splitext(input_file)[0]
+chunk_dir = os.path.join(DATA_DIR, f'{input_filename_wo_ext}_{backbone}_chunks')
+os.makedirs(chunk_dir, exist_ok=True)
+print(f"Chunk directory: {chunk_dir}\n")
 
-# Get expression matrix with mapped columns
-expr_matrix = lincs_df[symbol_cols].values
-print(f"  Expression matrix shape: {expr_matrix.shape}")
+# Process data in chunks
+print("Processing data in chunks...")
+chunk_files = []
+chunk_num = 0
 
-# Free lincs_df to save memory
-del lincs_df
-gc.collect()
+# Use chunksize parameter to read in chunks
+for chunk_df in pd.read_csv(lincs_path, chunksize=args.chunk_size):
+    chunk_num += 1
+    print(f"\n{'='*60}")
+    print(f"Processing chunk {chunk_num} ({len(chunk_df)} rows)...")
+    print(f"{'='*60}")
 
-# Create AnnData object
-print("  Creating AnnData object...")
-adata = ad.AnnData(X=expr_matrix)
-adata.obs['cell_id'] = cell_ids
-adata.var_names = symbol_cols
-adata.obs_names = cell_ids
+    # Rename columns using the mapping
+    chunk_df.rename(columns=id_to_symbol_map, inplace=True)
 
-# Free expr_matrix now that it's in adata
-del expr_matrix
-gc.collect()
+    # Extract metadata
+    metadata_df = chunk_df[metadata_cols].copy()
 
-# Align to AIDO.Cell input format
-print("  Aligning genes to AIDO.Cell vocabulary...")
-aligned_adata, attention_mask = cell_utils.align_adata(adata)
+    # Extract expression matrix
+    expr_matrix = chunk_df[symbol_cols].values
+    cell_ids = chunk_df['inst_id'].values
 
-# Free original adata
-del adata
-gc.collect()
+    # Free chunk_df
+    del chunk_df
+    gc.collect()
 
-# Prepare data (model already loaded above)
-X = aligned_adata.X.astype(np.float32)
-n_samples = X.shape[0]
+    # Create AnnData object
+    print("  Creating AnnData object...")
+    adata = ad.AnnData(X=expr_matrix)
+    adata.obs['cell_id'] = cell_ids
+    adata.var_names = symbol_cols
+    adata.obs_names = cell_ids
 
+    # Free expr_matrix
+    del expr_matrix
+    gc.collect()
 
-# Initialize AIDO.Cell model
-print("Initializing AIDO.Cell model...")
-batch_size = 32
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-backbone = 'aido_cell_3m'
+    # Align to AIDO.Cell input format
+    print("  Aligning genes to AIDO.Cell vocabulary...")
+    aligned_adata, attention_mask = cell_utils.align_adata(adata)
 
-print(f"  Loading {backbone} model on {device}...")
-model = Embed.from_config({
-    "model.backbone": backbone,
-    "model.batch_size": batch_size
-}).eval()
-model = model.to(device).to(torch.bfloat16)
-print(f"  Model loaded successfully!\n")
+    # Free original adata
+    del adata
+    gc.collect()
 
-# Pre-allocate array for mean embeddings to save memory
-# We'll compute mean on-the-fly instead of storing full embeddings
-if backbone == 'aido_cell_3m':
-    embedding_dim = 128
-elif backbone == 'aido_cell_10m':
-    embedding_dim = 256
-elif backbone == 'aido_cell_100m':
-    embedding_dim = 650
-mean_embeddings = np.zeros((n_samples, embedding_dim), dtype=np.float32)
+    # Prepare data for model
+    X = aligned_adata.X.astype(np.float32)
+    n_samples = X.shape[0]
 
-print("\nGenerating AIDO.Cell embeddings...")
-print(f"  Model: {backbone} ({embedding_dim} dimensions)")
-print("  This may take several minutes...")
+    # Pre-allocate array for chunk embeddings
+    chunk_embeddings = np.zeros((n_samples, embedding_dim), dtype=np.float32)
 
-# Generate embeddings in batches
-print(f"  Processing {n_samples} samples in batches of {batch_size}...")
-for i in tqdm(range(0, n_samples, batch_size)):
-    batch_np = X[i:i+batch_size]
-    batch_tensor = torch.from_numpy(batch_np).to(torch.bfloat16).to(device)
-    attention_mask_tensor = torch.tensor(attention_mask, dtype=torch.long).to(device)
-    attention_mask_tensor = attention_mask_tensor.unsqueeze(0).expand(batch_tensor.size(0), -1)
+    # Generate embeddings
+    print(f"  Generating embeddings for {n_samples} samples...")
+    for i in tqdm(range(0, n_samples, batch_size), desc=f"  Chunk {chunk_num}"):
+        batch_np = X[i:i+batch_size]
+        batch_tensor = torch.from_numpy(batch_np).to(torch.bfloat16).to(device)
+        attention_mask_tensor = torch.tensor(attention_mask, dtype=torch.long).to(device)
+        attention_mask_tensor = attention_mask_tensor.unsqueeze(0).expand(batch_tensor.size(0), -1)
 
-    with torch.no_grad():
-        transformed = model.transform({'sequences': batch_tensor, 'attention_mask': attention_mask_tensor})
-        embs = model(transformed)  # (batch_size, sequence_length, hidden_dim)
-        # Compute mean across sequence dimension immediately and move to CPU
-        batch_mean = embs.mean(dim=1).to(dtype=torch.float32).cpu().numpy()
-        mean_embeddings[i:i+len(batch_mean)] = batch_mean
-print(f"  Generated embeddings shape: {mean_embeddings.shape}")
+        with torch.no_grad():
+            transformed = model.transform({'sequences': batch_tensor, 'attention_mask': attention_mask_tensor})
+            embs = model(transformed)  # (batch_size, sequence_length, hidden_dim)
+            # Compute mean across sequence dimension immediately and move to CPU
+            batch_mean = embs.mean(dim=1).to(dtype=torch.float32).cpu().numpy()
+            chunk_embeddings[i:i+len(batch_mean)] = batch_mean
 
-# Clean up unused vars before saving
+    # Free memory
+    del aligned_adata, attention_mask, X
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+    # Create embedding dataframe and merge with metadata
+    print("  Creating results dataframe...")
+    embedding_df = pd.DataFrame(chunk_embeddings, columns=[f'emb_{j}' for j in range(embedding_dim)])
+    result_df = pd.concat([metadata_df.reset_index(drop=True), embedding_df.reset_index(drop=True)], axis=1)
+
+    # Save chunk to file
+    chunk_file = os.path.join(chunk_dir, f'chunk_{chunk_num:04d}.csv')
+    print(f"  Saving chunk to: {chunk_file}")
+    result_df.to_csv(chunk_file, index=False)
+    chunk_files.append(chunk_file)
+
+    # Free memory
+    del chunk_embeddings, embedding_df, result_df, metadata_df
+    gc.collect()
+
+    print(f"  Chunk {chunk_num} complete!")
+
+# Clean up model to free memory before compilation
+print("\n" + "="*60)
+print("All chunks processed. Cleaning up model...")
+print("="*60)
 del model
-del aligned_adata, attention_mask
 gc.collect()
+torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-# Create embedding df, merge with metadata_df
-embedding_df = pd.DataFrame(mean_embeddings, columns=[f'emb_{j}' for j in range(embedding_dim)])
-result_df = pd.concat([metadata_df.reset_index(drop=True), embedding_df.reset_index(drop=True)], axis=1)
+# Compile all chunks into final output
+print("\nCompiling chunks into final output...")
+output_path = os.path.join(DATA_DIR, f'{input_filename_wo_ext}_{backbone}_embeddings.csv')
+print(f"Final output: {output_path}")
 
-# Save to CSV
-output_path = os.path.join(DATA_DIR, f'lincs_{backbone}_embeddings.csv')
-print(f"\nSaving embeddings with metadata to: {output_path}")
-result_df.to_csv(output_path, index=False)
+# Read and concatenate all chunk files
+print(f"Combining {len(chunk_files)} chunks...")
+all_chunks = []
+for chunk_file in tqdm(chunk_files, desc="Loading chunks"):
+    chunk = pd.read_csv(chunk_file)
+    all_chunks.append(chunk)
+
+final_df = pd.concat(all_chunks, ignore_index=True)
+print(f"Final dataframe shape: {final_df.shape}")
+
+# Save final output
+print(f"Saving final output to: {output_path}")
+final_df.to_csv(output_path, index=False)
+
+# Clean up chunk files
+print("\nCleaning up intermediate chunk files...")
+for chunk_file in chunk_files:
+    os.remove(chunk_file)
+os.rmdir(chunk_dir)
+
+print("\n" + "="*60)
+print("COMPLETE!")
+print("="*60)
+print(f"Final embeddings saved to: {output_path}")
+print(f"Total samples: {len(final_df)}")
