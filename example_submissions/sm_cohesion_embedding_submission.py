@@ -39,7 +39,7 @@ print(f"  {len(ref_smiles_canon)} unique canonical SMILES\n")
 print(f"Loading LINCS data from: {DATA_DIR}/trt_cp_smiles.csv")
 print("  This will take a moment...")
 
-lincs_df_full = pd.read_csv(os.path.join(DATA_DIR, 'trt_cp_smiles.csv'))
+lincs_df_full = pd.read_csv(os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv'))
 print(f"  Loaded {len(lincs_df_full):,} total perturbation profiles")
 
 # Filter out invalid SMILES

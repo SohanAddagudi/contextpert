@@ -11,7 +11,7 @@ from contextpert.utils import canonicalize_smiles
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
 
-def evaluate_drug_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 50]):
+def evaluate_drug_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 25, 50]):
     """Evaluates a small molecule representation in terms of how well it captures disease labels
 
     Uses leave-one-target-signature-out cross-validation: for each drug, hold out all samples with the
@@ -197,7 +197,7 @@ def submit_drug_disease_cohesion(pred_df, mode='lincs'):
     print("EVALUATION RESULTS (Leave-One-Target-Signature-Out)")
     print("="*80)
 
-    k_list = [1, 5, 10, 50]
+    k_list = [1, 5, 10, 25, 50]
     results = evaluate_drug_disease_cohesion(pred_df_filtered, target_df, k_list=k_list)
 
     # Print results

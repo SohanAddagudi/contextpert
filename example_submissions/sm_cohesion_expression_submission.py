@@ -15,7 +15,7 @@ print("as molecular representations for the evaluation framework.\n")
 
 # Load LINCS L1000 compound perturbation data with canonical SMILES
 print(f"Loading LINCS compound perturbation data from: {DATA_DIR}/trt_cp_smiles.csv")
-lincs_df = pd.read_csv(os.path.join(DATA_DIR, 'trt_cp_smiles.csv'))
+lincs_df = pd.read_csv(os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv'))
 
 print(f"Loaded {len(lincs_df):,} perturbation profiles")
 print(f"  Unique BRD compounds: {lincs_df['pert_id'].nunique():,}")
