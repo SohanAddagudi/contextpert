@@ -24,10 +24,17 @@ parser.add_argument('--backbone', type=str, required=True,
                     help='AIDO.Cell backbone model to use')
 parser.add_argument('--chunk-size', type=int, default=10000,
                     help='Number of rows to process per chunk (default: 10000)')
+parser.add_argument('--input', type=str, required=True,
+                    help='Input CSV file path (can be absolute or relative to DATA_DIR)')
 args = parser.parse_args()
 
-input_file = 'trt_cp_smiles.csv'
-lincs_path = os.path.join(DATA_DIR, input_file)
+# Handle input file path (can be absolute or relative)
+if os.path.isabs(args.input):
+    lincs_path = args.input
+    input_file = os.path.basename(lincs_path)
+else:
+    input_file = args.input
+    lincs_path = os.path.join(DATA_DIR, input_file)
 print(f"\nProcessing compound perturbation data from: {lincs_path}")
 print(f"Chunk size: {args.chunk_size} rows")
 
@@ -97,6 +104,13 @@ chunk_dir = os.path.join(DATA_DIR, f'{input_filename_wo_ext}_{backbone}_chunks')
 os.makedirs(chunk_dir, exist_ok=True)
 print(f"Chunk directory: {chunk_dir}\n")
 
+# Calculate total number of chunks
+print("Calculating total number of chunks...")
+total_rows = sum(1 for _ in open(lincs_path)) - 1  # Subtract 1 for header
+total_chunks = (total_rows + args.chunk_size - 1) // args.chunk_size  # Ceiling division
+print(f"Total rows: {total_rows:,}")
+print(f"Total chunks to process: {total_chunks}\n")
+
 # Process data in chunks
 print("Processing data in chunks...")
 chunk_files = []
@@ -106,7 +120,7 @@ chunk_num = 0
 for chunk_df in pd.read_csv(lincs_path, chunksize=args.chunk_size):
     chunk_num += 1
     print(f"\n{'='*60}")
-    print(f"Processing chunk {chunk_num} ({len(chunk_df)} rows)...")
+    print(f"Processing chunk {chunk_num}/{total_chunks} ({len(chunk_df)} rows)...")
     print(f"{'='*60}")
 
     # Rename gene columns using the mapping
