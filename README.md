@@ -1,7 +1,7 @@
 ## Installation
 
 ```bash
-git clone --recurse-submodules https://github.com/cnellington/contextpert.git
+git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
 cd Contextualized
 pip install -e .
 cd ..
