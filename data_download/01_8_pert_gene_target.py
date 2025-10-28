@@ -8,12 +8,12 @@ from typing import Dict, List
 # ===================================================================
 # 1. Configuration & Constants
 # ===================================================================
-RAW_DATA_DIR = os.getenv('CONTEXTPERT_RAW_DATA_DIR')
 DATA_DIR = os.getenv('CONTEXTPERT_DATA_DIR')
 
-PERT_INFO_FILE = os.path.join(RAW_DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_pert_info.txt')
+PERT_INFO_FILE = os.path.join(DATA_DIR, 'lincs', 'GSE92742_Broad_LINCS_pert_info.txt')
 FULL_LINCS_WITH_CHEMBL_FILE = Path(DATA_DIR) / 'full_lincs_with_chembl.csv'
-DRUG_TARGET_PAIRS_FILE = Path(DATA_DIR) / 'drug_target_pairs.csv'
+DRUG_TARGET_PAIRS_FILE = Path(DATA_DIR) / 'opentargets/drug_target_pairs_csv/drug_target_pairs.csv'
+
 
 INST_CHEMBL_FILE = Path(DATA_DIR) / 'inst_chembl.csv'
 PERT_TARGET_OUTFILE = Path(DATA_DIR) / 'pert_target.csv'

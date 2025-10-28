@@ -8,8 +8,8 @@ maintains sufficient coverage for meaningful evaluation.
 
 Input:
     ${CONTEXTPERT_DATA_DIR}/trt_cp_smiles_qc.csv
-    ${CONTEXTPERT_DATA_DIR}/trt_sh_qc.csv
-    ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs_filtered.csv
+    ${CONTEXTPERT_DATA_DIR}/trt_sh_genes_qc.csv
+    ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs.csv
 
 Output:
     ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv
@@ -48,31 +48,27 @@ print(f"  Unique canonical SMILES: {lincs_cp_df['canonical_smiles'].nunique():,}
 lincs_smiles_set = set(lincs_cp_df['canonical_smiles'].dropna().unique())
 print(f"\nUnique LINCS drug SMILES: {len(lincs_smiles_set):,}")
 
-# Load LINCS shRNA data (targets)
+# Load LINCS shRNA data (targets) with gene annotations
 print("\n" + "=" * 80)
 print("LOADING LINCS TARGET DATA")
 print("=" * 80)
 
-lincs_sh_path = os.path.join(DATA_DIR, 'trt_sh_qc.csv')
-print(f"\nLoading LINCS shRNA data from: {lincs_sh_path}")
-lincs_sh_df = pd.read_csv(lincs_sh_path, low_memory=False)
+# Load trt_sh_genes_qc which already has target annotations
+trt_sh_genes_path = os.path.join(DATA_DIR, 'trt_sh_genes_qc.csv')
+print(f"\nLoading trt_sh_genes_qc data from: {trt_sh_genes_path}")
+trt_sh_genes_df = pd.read_csv(trt_sh_genes_path, low_memory=False)
 
-print(f"Loaded LINCS shRNA data:")
-print(f"  Total samples: {len(lincs_sh_df):,}")
-print(f"  Unique perturbation IDs: {lincs_sh_df['pert_id'].nunique():,}")
-
-# Identify gene columns (ENSG IDs)
-metadata_cols = ['inst_id', 'cell_id', 'pert_id', 'pert_type', 'pert_dose',
-                 'pert_dose_unit', 'pert_time', 'sig_id', 'distil_cc_q75',
-                 'pct_self_rank_q25']
-gene_cols = [col for col in lincs_sh_df.columns if col not in metadata_cols]
-
-print(f"  Gene columns (ENSG IDs): {len(gene_cols)}")
-print(f"  Example ENSG IDs: {gene_cols[:10]}")
+print(f"Loaded trt_sh_genes_qc data:")
+print(f"  Total samples: {len(trt_sh_genes_df):,}")
+print(f"  Unique pert_ids: {trt_sh_genes_df['pert_id'].nunique():,}")
+print(f"  Samples with Ensembl ID: {trt_sh_genes_df['ensembl_id'].notna().sum():,}")
+print(f"  Unique gene symbols: {trt_sh_genes_df['gene_symbol'].nunique():,}")
+print(f"  Unique Ensembl IDs: {trt_sh_genes_df['ensembl_id'].nunique():,}")
 
 # Get unique target ENSG IDs from LINCS
-lincs_target_set = set(gene_cols)
+lincs_target_set = set(trt_sh_genes_df['ensembl_id'].dropna().unique())
 print(f"\nUnique LINCS target ENSG IDs: {len(lincs_target_set):,}")
+print(f"  Example ENSG IDs: {list(lincs_target_set)[:10]}")
 
 # Load OpenTargets drug-target pairs
 print("\n" + "=" * 80)
@@ -214,7 +210,7 @@ print("=" * 80)
 print(f"\nInput sources:")
 print(f"  LINCS drugs: {lincs_cp_path}")
 print(f"    Unique SMILES: {len(lincs_smiles_set):,}")
-print(f"  LINCS targets: {lincs_sh_path}")
+print(f"  LINCS targets: {trt_sh_genes_path}")
 print(f"    Unique ENSG IDs: {len(lincs_target_set):,}")
 print(f"  OpenTargets pairs: {opentargets_path}")
 print(f"    Total pairs: {len(opentargets_df):,}")

@@ -14,3 +14,5 @@ wget -P $CONTEXTPERT_RAW_DATA_DIR/lincs/ https://ftp.ncbi.nlm.nih.gov/geo/series
 # Unzip all
 echo "Unzipping files, this may take a moment..."
 gunzip -v $CONTEXTPERT_RAW_DATA_DIR/lincs/*.gz
+# Copy pert info into working data dir
+cp $CONTEXTPERT_RAW_DATA_DIR/lincs/GSE92742_Broad_LINCS_pert_info.txt $CONTEXTPERT_DATA_DIR/GSE92742_Broad_LINCS_pert_info.txt
