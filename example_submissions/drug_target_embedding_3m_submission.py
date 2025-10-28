@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """
-Drug-Target Mapping Evaluation using LINCS Expression Data
+Drug-Target Mapping Evaluation using AIDO Cell Embeddings
 
-Evaluates drug-target interaction prediction using gene expression profiles from
-LINCS L1000 data:
-- Drug representations: Expression profiles from compound perturbations (trt_cp)
-- Target representations: Expression profiles from shRNA knockdowns (trt_sh)
+Evaluates drug-target interaction prediction using cell embeddings from
+AIDO Cell 3M model:
+- Drug representations: Embeddings from compound perturbations (trt_cp)
+- Target representations: Embeddings from shRNA knockdowns (trt_sh)
 
 Both are aggregated by averaging across replicates for each unique perturbation.
 """
@@ -19,12 +19,12 @@ from contextpert import submit_drug_target_mapping
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
 print("=" * 80)
-print("DRUG-TARGET EXPRESSION EVALUATION")
+print("DRUG-TARGET AIDO CELL 3M EMBEDDING EVALUATION")
 print("=" * 80)
-print("\nThis example uses LINCS L1000 gene expression profiles to evaluate")
+print("\nThis example uses AIDO Cell 3M embeddings to evaluate")
 print("drug-target interaction prediction:")
-print("  - Drugs: Expression from compound perturbations (trt_cp)")
-print("  - Targets: Expression from shRNA knockdowns (trt_sh)")
+print("  - Drugs: Embeddings from compound perturbations (trt_cp)")
+print("  - Targets: Embeddings from shRNA knockdowns (trt_sh)")
 print()
 
 # ============================================================================
@@ -34,43 +34,43 @@ print("=" * 80)
 print("LOADING DRUG DATA (COMPOUND PERTURBATIONS)")
 print("=" * 80)
 
-trt_cp_path = os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv')
-print(f"\nLoading compound perturbation data from: {trt_cp_path}")
-trt_cp_df = pd.read_csv(trt_cp_path)
+trt_cp_embed_path = os.path.join(DATA_DIR, 'trt_cp_smiles_qc_aido_cell_3m_embeddings.csv')
+print(f"\nLoading compound perturbation embeddings from: {trt_cp_embed_path}")
+trt_cp_df = pd.read_csv(trt_cp_embed_path)
 
-print(f"Loaded trt_cp data:")
+print(f"Loaded trt_cp embedding data:")
 print(f"  Total samples: {len(trt_cp_df):,}")
 print(f"  Unique BRD IDs: {trt_cp_df['pert_id'].nunique():,}")
 print(f"  Unique canonical SMILES: {trt_cp_df['canonical_smiles'].nunique():,}")
 
-# Read Entrez features from trt_sh_qc_gene_cols.txt
-gene_cols_path = os.path.join(DATA_DIR, 'trt_sh_qc_gene_cols.txt')
-print(f"\nLoading gene columns from: {gene_cols_path}")
-with open(gene_cols_path, 'r') as f:
-    gene_cols = [line.strip() for line in f]
+# Identify embedding columns
+metadata_cols = ['inst_id', 'cell_id', 'pert_id', 'pert_type', 'pert_dose',
+                 'pert_dose_unit', 'pert_time', 'sig_id', 'distil_cc_q75',
+                 'pct_self_rank_q25', 'canonical_smiles', 'inchi_key']
+embedding_cols = [col for col in trt_cp_df.columns if col.startswith('emb_')]
 
-print(f"  Loaded {len(gene_cols)} gene features (Entrez IDs)")
-print(f"  Example Entrez IDs: {gene_cols[:5]}")
+print(f"  Embedding features: {len(embedding_cols)}")
+print(f"  Example embedding columns: {embedding_cols[:5]}")
 
-# Aggregate expression by SMILES (average across replicates)
-print("\nAggregating expression profiles by SMILES...")
-agg_dict = {col: 'mean' for col in gene_cols}
+# Aggregate embeddings by SMILES (average across replicates)
+print("\nAggregating embeddings by SMILES...")
+agg_dict = {col: 'mean' for col in embedding_cols}
 agg_dict['canonical_smiles'] = 'first'
 
-drug_expr_df = (
-    trt_cp_df.groupby('pert_id')[gene_cols + ['canonical_smiles']]
+drug_embed_df = (
+    trt_cp_df.groupby('pert_id')[embedding_cols + ['canonical_smiles']]
     .agg(agg_dict)
     .reset_index()
 )
 
-print(f"  Aggregated to {len(drug_expr_df):,} unique compounds")
+print(f"  Aggregated to {len(drug_embed_df):,} unique compounds")
 
 # Prepare drug prediction dataframe
-drug_preds = drug_expr_df[['canonical_smiles'] + gene_cols].rename(columns={'canonical_smiles': 'smiles'})
+drug_preds = drug_embed_df[['canonical_smiles'] + embedding_cols].rename(columns={'canonical_smiles': 'smiles'})
 
 print(f"\nFinal drug representation:")
 print(f"  Unique compounds: {len(drug_preds)}")
-print(f"  Gene features (Entrez): {len(drug_preds.columns) - 1}")
+print(f"  Embedding features: {len(drug_preds.columns) - 1}")
 print(f"  Shape: {drug_preds.shape}")
 
 # ============================================================================
@@ -80,42 +80,42 @@ print("\n" + "=" * 80)
 print("LOADING TARGET DATA (shRNA KNOCKDOWNS)")
 print("=" * 80)
 
-trt_sh_genes_path = os.path.join(DATA_DIR, 'trt_sh_genes_qc.csv')
-print(f"\nLoading shRNA knockdown data with target annotations from: {trt_sh_genes_path}")
-trt_sh_df = pd.read_csv(trt_sh_genes_path, low_memory=False)
+trt_sh_embed_path = os.path.join(DATA_DIR, 'trt_sh_genes_qc_aido_cell_3m_embeddings.csv')
+print(f"\nLoading shRNA knockdown embeddings with target annotations from: {trt_sh_embed_path}")
+trt_sh_df = pd.read_csv(trt_sh_embed_path, low_memory=False)
 
-print(f"Loaded trt_sh_genes_qc data:")
+print(f"Loaded trt_sh embedding data:")
 print(f"  Total samples: {len(trt_sh_df):,}")
 print(f"  Unique perturbation IDs: {trt_sh_df['pert_id'].nunique():,}")
 print(f"  Samples with target annotation: {trt_sh_df['ensembl_id'].notna().sum():,}")
 print(f"  Unique target genes: {trt_sh_df['ensembl_id'].nunique():,}")
 
-# Use the same gene col features (loaded in TODO 1)
-print(f"\n  Using same {len(gene_cols)} gene features for target data")
+# Identify embedding columns (same as drug data)
+print(f"\n  Using {len(embedding_cols)} embedding features")
 
 # Filter to only perturbations with target annotations
 print("\nFiltering to perturbations with target annotations...")
 trt_sh_df = trt_sh_df[trt_sh_df['ensembl_id'].notna()].copy()
 print(f"  Retained samples: {len(trt_sh_df):,}")
 
-# Aggregate expression by target gene (average across perturbations targeting same gene)
+# Aggregate embeddings by target gene (average across perturbations targeting same gene)
 print("\nAggregating by target gene...")
-agg_dict_sh = {col: 'mean' for col in gene_cols}
+agg_dict_sh = {col: 'mean' for col in embedding_cols}
 
-target_expr_df = (
-    trt_sh_df.groupby('ensembl_id')[gene_cols]
+target_embed_df = (
+    trt_sh_df.groupby('ensembl_id')[embedding_cols]
     .mean()
     .reset_index()
 )
 
-print(f"  Aggregated to {len(target_expr_df):,} unique target genes")
+print(f"  Aggregated to {len(target_embed_df):,} unique target genes")
 
-# Prepare target prediction dataframe (targetId + same gene_cols as drug data)
-target_preds = target_expr_df.rename(columns={'ensembl_id': 'targetId'})
+# Prepare target prediction dataframe (targetId + same embedding_cols as drug data)
+target_preds = target_embed_df.rename(columns={'ensembl_id': 'targetId'})
 
 print(f"\nFinal target representation:")
 print(f"  Unique targets: {len(target_preds)}")
-print(f"  Gene features (Entrez): {len(target_preds.columns) - 1}")
+print(f"  Embedding features: {len(target_preds.columns) - 1}")
 print(f"  Shape: {target_preds.shape}")
 
 # ============================================================================
@@ -137,8 +137,8 @@ print("EVALUATION SUMMARY")
 print("=" * 80)
 
 print("\nData Sources:")
-print(f"  Drugs (trt_cp):   {len(drug_preds):,} compounds with {len(drug_preds.columns)-1} gene features")
-print(f"  Targets (trt_sh): {len(target_preds):,} genes with {len(target_preds.columns)-1} gene features")
+print(f"  Drugs (trt_cp):   {len(drug_preds):,} compounds with {len(drug_preds.columns)-1} embedding features")
+print(f"  Targets (trt_sh): {len(target_preds):,} genes with {len(target_preds.columns)-1} embedding features")
 
 print("\nKey Metrics:")
 print(f"  AUROC:                    {results.get('auroc', 0):.4f}")
@@ -149,6 +149,6 @@ print(f"  Target->Drug Precision@10: {results.get('target_to_drug_precision@10',
 print("\n" + "=" * 80)
 print("EVALUATION COMPLETE")
 print("=" * 80)
-print("\nThis evaluation uses real LINCS L1000 gene expression profiles to assess")
-print("whether expression-based representations can predict known drug-target interactions.")
+print("\nThis evaluation uses AIDO Cell 3M embeddings (128-dim) to assess")
+print("whether learned cell state representations can predict known drug-target interactions.")
 print()

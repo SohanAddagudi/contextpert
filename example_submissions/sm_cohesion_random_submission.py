@@ -12,7 +12,7 @@ disease_drug_df = pd.read_csv(os.path.join(DATA_DIR, 'opentargets/disease_drug_t
 drug_smiles_list = disease_drug_df['smiles'].unique().tolist()
 
 # Create dummy predictions: random 100-dimensional vectors
-np.random.seed(42)
+np.random.seed(0)
 n_drugs = len(drug_smiles_list)
 repr_dim = 100
 pred_data = {'smiles': drug_smiles_list}
