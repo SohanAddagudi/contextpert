@@ -20,11 +20,8 @@ from contextpert.utils import canonicalize_smiles
 
 # --- Configuration ---
 DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
-#dir for trt_cp networks
-TRAINING_OUTPUT_PARENT_DIR = '/home/user/screening2/contextpert/all_run_results'
 
-#dir for trt_sh networks
-TRAINING_OUTPUT_PARENT_SH = '/home/user/screening2/contextpert/prev_inferences'
+
 # ---------------------
 
 print("=" * 80)
@@ -42,17 +39,11 @@ print("LOADING DRUG DATA (COMPOUND PERTURBATION BETAS)")
 print("=" * 80)
 pd.set_option('display.max_columns', None)
 # --- Define model paths ---
-CP_PERT_NAME = 'trt_cp'
-CP_EMB_NAME = 'AIDOprot'
-CP_PARAM_NAME = 'bs_128_arch_50'
-CP_MODEL_RESULTS_DIR = os.path.join(TRAINING_OUTPUT_PARENT_DIR, f'{CP_PERT_NAME}_{CP_EMB_NAME}', CP_PARAM_NAME)
-CP_BETA_PATH = os.path.join(CP_MODEL_RESULTS_DIR, 'full_dataset_betas.npy')
-CP_PRED_CSV_PATH = os.path.join(CP_MODEL_RESULTS_DIR, 'full_dataset_predictions.csv')
+CP_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/full_dataset_betas.npy')
+CP_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/full_dataset_predictions.csv')
 
-# --- Define model paths ---
-SH_MODEL_RESULTS_DIR = os.path.join(TRAINING_OUTPUT_PARENT_SH, 'trt_sh_AIDOprot')
-SH_BETA_PATH = os.path.join(SH_MODEL_RESULTS_DIR, 'full_dataset_betas.npy')
-SH_PRED_CSV_PATH = os.path.join(SH_MODEL_RESULTS_DIR, 'full_dataset_predictions.csv')
+SH_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/aidoprot_trt_sh_preds_drug_target/full_dataset_betas.npy')
+SH_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/aidoprot_trt_sh_preds_drug_target/full_dataset_predictions.csv')
 
 # --- Load model betas and instance metadata ---
 print(f"\nLoading model betas from: {CP_BETA_PATH}")

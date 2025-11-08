@@ -5,35 +5,23 @@ import numpy as np  # Added for loading model outputs
 from contextpert import submit_drug_disease_cohesion
 from contextpert.utils import canonicalize_smiles
 
-DATA_DIR = os.path.join('/home/user/screening3/contextpert/data')
+DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 LINCS_META_PATH = os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv')
 
-TRAINING_OUTPUT_PARENT_DIR = '/home/user/screening2/contextpert/all_run_results' 
-
-PERT_NAME = 'trt_cp'  
-EMB_NAME = 'AIDOcell'  
-PARAM_NAME = 'bs_64_arch_10'
-
 # Construct paths to the specific model's output files
-MODEL_RESULTS_DIR = os.path.join(TRAINING_OUTPUT_PARENT_DIR, f'{PERT_NAME}_{EMB_NAME}')
-MODEL_RESULTS_DIR = os.path.join(MODEL_RESULTS_DIR, PARAM_NAME)
+MODEL_RESULTS_DIR = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/')
 BETA_PATH = os.path.join(MODEL_RESULTS_DIR, 'full_dataset_betas.npy')
 PRED_CSV_PATH = os.path.join(MODEL_RESULTS_DIR, 'full_dataset_predictions.csv')
 
 
 print("="*80)
-print(f"MODEL PARAMETER EVALUATION: {EMB_NAME}")
+print(f"MODEL PARAMETER EVALUATION")
 print("="*80)
 print("\nThis example uses learned model parameters (betas) from a")
-print(f"ContextualizedCorrelation model ('{EMB_NAME}') as molecular representations.\n")
+print(f"ContextualizedCorrelation model as molecular representations.\n")
 
 print(f"Loading model betas from: {BETA_PATH}")
-try:
-    betas = np.load(BETA_PATH)
-except FileNotFoundError:
-    print(f"Error: Beta file not found at {BETA_PATH}")
-    print("Please check your 'TRAINING_OUTPUT_PARENT_DIR' and 'EMB_NAME' variables.")
-    exit()
+betas = np.load(BETA_PATH)
 
 n_samples, n_pcs, _ = betas.shape
 n_features = n_pcs * n_pcs
@@ -48,12 +36,7 @@ beta_df = pd.DataFrame(betas_flat, columns=feature_cols)
 
 # Load model prediction metadata (for inst_id)
 print(f"Loading prediction metadata from: {PRED_CSV_PATH}")
-try:
-    pred_meta_df = pd.read_csv(PRED_CSV_PATH)
-except FileNotFoundError:
-    print(f"Error: Predictions CSV not found at {PRED_CSV_PATH}")
-    print("Please check your 'TRAINING_OUTPUT_PARENT_DIR' and 'EMB_NAME' variables.")
-    exit()
+pred_meta_df = pd.read_csv(PRED_CSV_PATH)
 
 if len(pred_meta_df) != len(beta_df):
     print(f"Error: Mismatch in length between betas ({len(beta_df)}) and metadata ({len(pred_meta_df)})")
