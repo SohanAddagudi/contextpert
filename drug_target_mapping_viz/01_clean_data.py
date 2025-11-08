@@ -195,4 +195,115 @@ print(f"  UMAP complete!")
 # ============================================================================
 # Part 5: Create new plot df with id, name (symbol for gene, compound name for drug), pert_type, maps_to (list of ids), and UMAP coords.
 # ============================================================================
-# todo: compile and save
+print("\n" + "=" * 80)
+print("CREATING PLOT DATAFRAME")
+print("=" * 80)
+
+import json
+
+# Step 1: Create name mappings
+print("\nCreating name mappings...")
+
+# Map ensembl_id -> gene_symbol for targets
+ensembl_to_symbol = dict(zip(trt_sh_df['ensembl_id'], trt_sh_df['gene_symbol']))
+print(f"  Created gene symbol mapping for {len(ensembl_to_symbol):,} targets")
+
+# Map smiles -> prefName for drugs
+smiles_to_drugname = dict(zip(drug_target_pairs['smiles'], drug_target_pairs['prefName']))
+print(f"  Created drug name mapping for {len(smiles_to_drugname):,} drugs")
+
+# Step 2: Add UMAP coordinates to combined_data
+print("\nAdding UMAP coordinates...")
+combined_data['umap_1'] = embedding[:, 0]
+combined_data['umap_2'] = embedding[:, 1]
+print(f"  Added UMAP coordinates to {len(combined_data):,} samples")
+
+# Step 3: Build maps_to connections
+print("\nBuilding drug-target connections...")
+
+# Create mapping dictionaries for efficient lookup
+# For drugs: smiles -> list of targetIds
+drug_to_targets = {}
+for _, row in drug_target_pairs.iterrows():
+    smiles = row['smiles']
+    target = row['targetId']
+    if smiles not in drug_to_targets:
+        drug_to_targets[smiles] = []
+    drug_to_targets[smiles].append(target)
+
+# For targets: targetId -> list of smiles
+target_to_drugs = {}
+for _, row in drug_target_pairs.iterrows():
+    smiles = row['smiles']
+    target = row['targetId']
+    if target not in target_to_drugs:
+        target_to_drugs[target] = []
+    target_to_drugs[target].append(smiles)
+
+print(f"  Built connections for {len(drug_to_targets):,} drugs and {len(target_to_drugs):,} targets")
+
+# Step 4: Create final plot DataFrame
+print("\nCreating final plot DataFrame...")
+
+# Add name column based on modality
+combined_data['name'] = combined_data.apply(
+    lambda row: smiles_to_drugname.get(row['id'], row['id']) if row['modality'] == 'compound'
+    else ensembl_to_symbol.get(row['id'], row['id']),
+    axis=1
+)
+
+# Add maps_to column as JSON strings
+combined_data['maps_to'] = combined_data.apply(
+    lambda row: json.dumps(drug_to_targets.get(row['id'], [])) if row['modality'] == 'compound'
+    else json.dumps(target_to_drugs.get(row['id'], [])),
+    axis=1
+)
+
+# Rename modality to pert_type for clarity
+combined_data['pert_type'] = combined_data['modality']
+
+# Select and reorder columns for final output
+plot_df = combined_data[['id', 'name', 'pert_type', 'maps_to', 'umap_1', 'umap_2']].copy()
+
+print(f"  Final DataFrame shape: {plot_df.shape}")
+print(f"    Columns: {list(plot_df.columns)}")
+
+# Step 5: Save to CSV
+output_path = os.path.join('drug_target_mapping_viz', 'expr_plot_data.csv')
+print(f"\nSaving plot data to: {output_path}")
+plot_df.to_csv(output_path, index=False)
+print(f"  ✓ Saved successfully!")
+
+# Print summary statistics
+print("\n" + "=" * 80)
+print("SUMMARY STATISTICS")
+print("=" * 80)
+print(f"Total samples in plot: {len(plot_df):,}")
+print(f"  Compounds: {(plot_df['pert_type'] == 'compound').sum():,}")
+print(f"  shRNA targets: {(plot_df['pert_type'] == 'shRNA').sum():,}")
+print()
+
+# Count total connections
+total_connections = sum(len(json.loads(maps_to)) for maps_to in plot_df['maps_to'])
+print(f"Total drug-target connections: {total_connections:,}")
+
+# Calculate connection statistics
+drug_df = plot_df[plot_df['pert_type'] == 'compound'].copy()
+target_df = plot_df[plot_df['pert_type'] == 'shRNA'].copy()
+
+drug_df['n_targets'] = drug_df['maps_to'].apply(lambda x: len(json.loads(x)))
+target_df['n_drugs'] = target_df['maps_to'].apply(lambda x: len(json.loads(x)))
+
+print(f"\nDrug statistics:")
+print(f"  Avg targets per drug: {drug_df['n_targets'].mean():.2f}")
+print(f"  Max targets per drug: {drug_df['n_targets'].max()}")
+print(f"  Drugs with no targets: {(drug_df['n_targets'] == 0).sum()}")
+
+print(f"\nTarget statistics:")
+print(f"  Avg drugs per target: {target_df['n_drugs'].mean():.2f}")
+print(f"  Max drugs per target: {target_df['n_drugs'].max()}")
+print(f"  Targets with no drugs: {(target_df['n_drugs'] == 0).sum()}")
+
+print("\n" + "=" * 80)
+print("COMPLETE!")
+print("=" * 80)
