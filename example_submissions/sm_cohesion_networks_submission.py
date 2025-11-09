@@ -9,7 +9,7 @@ DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 LINCS_META_PATH = os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv')
 
 # Construct paths to the specific model's output files
-MODEL_RESULTS_DIR = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/')
+MODEL_RESULTS_DIR = os.path.join(DATA_DIR, 'sm_cohesion_network/trt_cp_AIDOcell/bs_64_arch_10/')
 BETA_PATH = os.path.join(MODEL_RESULTS_DIR, 'full_dataset_betas.npy')
 PRED_CSV_PATH = os.path.join(MODEL_RESULTS_DIR, 'full_dataset_predictions.csv')
 
