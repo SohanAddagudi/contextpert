@@ -45,6 +45,9 @@ def evaluate_drug_target_mapping(drug_repr_df, target_repr_df, target_pairs_df, 
         warnings.warn(f"{len(missing_targets)} drug-target pairs have targets missing from target_repr_df")
         target_pairs_df = target_pairs_df[target_pairs_df['targetId'].isin(target_repr_df['targetId'])]
 
+    assert missing_drugs.empty, f"Failure: {len(missing_drugs)} SMILES in target_pairs_df are missing from drug_repr_df: {missing_smiles['smiles'].tolist()}"
+    assert missing_targets.empty, f"Failure: {len(missing_targets)} genes in target_pairs_df are missing from target_repr_df: {missing_targets['targetId'].tolist()}"
+
     if len(target_pairs_df) == 0:
         raise ValueError("No valid drug-target pairs after filtering. Cannot evaluate.")
 
