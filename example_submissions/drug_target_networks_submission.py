@@ -42,8 +42,8 @@ pd.set_option('display.max_columns', None)
 CP_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/full_dataset_betas.npy')
 CP_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/full_dataset_predictions.csv')
 
-SH_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/aidoprot_trt_sh_preds_drug_target/full_dataset_betas.npy')
-SH_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/aidoprot_trt_sh_preds_drug_target/full_dataset_predictions.csv')
+SH_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_betas.npy')
+SH_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_predictions.csv')
 
 # --- Load model betas and instance metadata ---
 print(f"\nLoading model betas from: {CP_BETA_PATH}")
