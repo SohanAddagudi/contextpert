@@ -357,14 +357,14 @@ def submit_drug_target_mapping(drug_repr_df, target_repr_df, k_list=[1, 5, 10, 5
     for k in k_list:
         print(f"  k={k}:")
         print(f"    Precision@{k}: {results.get(f'drug_to_target_precision@{k}', 0):.4f}")
-        print(f"    Recall@{k}:    {results.get(f'drug_to_target_recall@{k}', 0):.4f}")
+        print(f"    Hits@{k}:    {results.get(f'drug_to_target_recall@{k}', 0):.4f}")
         print(f"    MRR@{k}:       {results.get(f'drug_to_target_mrr@{k}', 0):.4f}")
 
     print(f"\nTarget -> Drug Retrieval ({results.get('target_to_drug_queries', 0)} queries):")
     for k in k_list:
         print(f"  k={k}:")
         print(f"    Precision@{k}: {results.get(f'target_to_drug_precision@{k}', 0):.4f}")
-        print(f"    Recall@{k}:    {results.get(f'target_to_drug_recall@{k}', 0):.4f}")
+        print(f"    Hits@{k}:    {results.get(f'target_to_drug_recall@{k}', 0):.4f}")
         print(f"    MRR@{k}:       {results.get(f'target_to_drug_mrr@{k}', 0):.4f}")
 
     print(f"\nGraph-Based Metrics:")
