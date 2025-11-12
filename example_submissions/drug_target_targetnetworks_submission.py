@@ -14,6 +14,7 @@ evaluation script for consistency.
 import os
 import pandas as pd
 import numpy as np
+from sklearn.decomposition import PCA
 
 from contextpert import submit_drug_target_mapping
 from contextpert.utils import canonicalize_smiles
