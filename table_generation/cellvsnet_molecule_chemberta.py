@@ -13,6 +13,9 @@ import os
 from contextualized.regression.lightning_modules import ContextualizedCorrelation
 from contextualized.data import CorrelationDataModule
 from lightning import seed_everything, Trainer
+from lightning.pytorch.callbacks import EarlyStopping
+
+seed_everything(10, workers=True)
 
 DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
 
@@ -27,7 +30,7 @@ print(f"Saving outputs to {OUTPUT_DIR.resolve()}")
  
 N_DATA_PCS   = 50    
 PERTURBATION_HOLDOUT_SIZE = 0.2  
-RANDOM_STATE = 42
+RANDOM_STATE = 10
 SUBSAMPLE_FRACTION = None 
 
 print(f"Loading ChemBERTa embeddings from {EMBEDDING_NPZ_FILE}...")
@@ -340,7 +343,8 @@ trainer = Trainer(
     max_epochs=20,
     accelerator='auto',
     devices='auto',
-    callbacks=[checkpoint_callback, early_stop_callback], 
+    callbacks=[checkpoint_callback, early_stop_callback],
+    deterministic=True,
 )
 trainer.fit(contextualized_model, datamodule=datamodule)
 
@@ -362,6 +366,7 @@ trainer = Trainer(
     accelerator='auto',
     devices='auto',
     callbacks=[checkpoint_callback, writer_callback],
+    deterministic=True,
 )
 print("Making predictions on full dataset (train + test)...")
 _ = trainer.predict(contextualized_model, datamodule=datamodule)
@@ -484,3 +489,15 @@ print(f"  Training samples: {(results_df['split'] == 'train').sum()}")
 print(f"  Test samples: {(results_df['split'] == 'test').sum()}")
 print(f"  Average MSE across full dataset: {results_df['mse'].mean():.4f}")
 print("="*80)
+
+# Save results
+print(f"\nSaving results to {OUTPUT_DIR.resolve()}:")
+results_df.to_csv(OUTPUT_DIR / 'full_dataset_predictions.csv', index=False)
+np.save(OUTPUT_DIR / 'full_dataset_correlations.npy', correlations_full)
+np.save(OUTPUT_DIR / 'full_dataset_betas.npy', betas_full)
+np.save(OUTPUT_DIR / 'full_dataset_mus.npy', mus_full)
+
+print(f"  - {OUTPUT_DIR.name}/full_dataset_predictions.csv (sample-level results)")
+print(f"  - {OUTPUT_DIR.name}/full_dataset_correlations.npy (correlation matrices)")
+print(f"  - {OUTPUT_DIR.name}/full_dataset_betas.npy (beta coefficients)")
+print(f"  - {OUTPUT_DIR.name}/full_dataset_mus.npy (mu parameters)")
