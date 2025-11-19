@@ -5,24 +5,32 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, RobustScaler, QuantileTransformer
 from sklearn.model_selection import train_test_split, ParameterGrid
-# from contextualized.easy import ContextualizedCorrelationNetworks
 from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
 import warnings
+import os
+from pathlib import Path
 
 from contextualized.regression.lightning_modules import ContextualizedCorrelation
 from contextualized.data import CorrelationDataModule
 from lightning import seed_everything, Trainer
+from lightning.pytorch.callbacks import EarlyStopping
+
+seed_everything(10, workers=True)
 
 DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
 
 PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'trt_cp.csv'
 PATH_CTLS = DATA_DIR / 'ctrls.csv'
 PATH_SPLIT_MAP = DATA_DIR / 'gene_embeddings' / 'unseen_perturbation_splits' / 'trt_cp_split_map.csv'
- 
+
+OUTPUT_DIR = Path('./morgan_model_outputs')
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+print(f"Saving outputs to {OUTPUT_DIR.resolve()}")
+
 N_DATA_PCS   = 50    
 PERTURBATION_HOLDOUT_SIZE = 0.2  
-RANDOM_STATE = 42
+RANDOM_STATE = 10
 SUBSAMPLE_FRACTION = None  
 
 morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=1, fpSize=1024)  
@@ -213,8 +221,8 @@ def build_context_matrix_improved(df_split, morgan_fps_scaled, pert_time, pert_d
         
         C_cell = np.hstack([
             C_continuous_scaled,                         
-            morgan_fps_scaled[mask],                       
-            ignore_time[mask],                            
+            morgan_fps_scaled[mask],                        
+            ignore_time[mask],                             
             ignore_dose[mask],
         ])
 
@@ -298,16 +306,24 @@ datamodule = CorrelationDataModule(
 )
 
 checkpoint_callback = pl.pytorch.callbacks.ModelCheckpoint(
+    dirpath=OUTPUT_DIR,
     monitor='val_loss',
     mode='min',
     save_top_k=1,
     filename='best_model',
 )
+early_stop_callback = EarlyStopping(
+   monitor='val_loss', 
+   patience=5,         
+   mode='min'          
+)
+
 trainer = Trainer(
     max_epochs=25,
     accelerator='auto',
     devices='auto',
-    callbacks=[checkpoint_callback],
+    callbacks=[checkpoint_callback, early_stop_callback],
+    deterministic=True,
 )
 trainer.fit(contextualized_model, datamodule=datamodule)
 
@@ -328,6 +344,7 @@ trainer = Trainer(
     accelerator='auto',
     devices='auto',
     callbacks=[checkpoint_callback, writer_callback],
+    deterministic=True,
 )
 print("Making predictions on full dataset (train + test)...")
 _ = trainer.predict(contextualized_model, datamodule=datamodule)
@@ -451,3 +468,8 @@ print(f"  Test samples: {(results_df['split'] == 'test').sum()}")
 print(f"  Average MSE across full dataset: {results_df['mse'].mean():.4f}")
 print("="*80)
 
+print(f"\nSaving results to {OUTPUT_DIR.resolve()}:")
+results_df.to_csv(OUTPUT_DIR / 'full_dataset_predictions.csv', index=False)
+np.save(OUTPUT_DIR / 'full_dataset_correlations.npy', correlations_full)
+np.save(OUTPUT_DIR / 'full_dataset_betas.npy', betas_full)
+np.save(OUTPUT_DIR / 'full_dataset_mus.npy', mus_full)
