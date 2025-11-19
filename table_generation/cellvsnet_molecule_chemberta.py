@@ -302,7 +302,7 @@ contextualized_model = ContextualizedCorrelation(
     context_dim=C_train.shape[1],
     x_dim=X_train.shape[1],
     encoder_type='mlp',
-    num_archetypes=75,
+    num_archetypes=30,
 )
 
 train_indices, val_indices = train_test_split(
@@ -340,7 +340,7 @@ early_stop_callback = EarlyStopping(
 )
 
 trainer = Trainer(
-    max_epochs=20,
+    max_epochs=25,
     accelerator='auto',
     devices='auto',
     callbacks=[checkpoint_callback, early_stop_callback],
