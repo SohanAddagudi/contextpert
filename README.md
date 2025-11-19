@@ -1,3 +1,7 @@
+# Virtual Screening on Cellular Systems
+
+Todo: submission function intro and leaderboard tables
+
 ## Installation
 
 ```bash
@@ -15,7 +19,9 @@ python test_installation.py
 
 which should produce a test loss on a dummy dataset.
 
-## Development
+## Running Experiments
+
+### Recreating Datasets
 Create a data directory to store shared data files.
 
 ```bash
@@ -50,6 +56,45 @@ For debugging, consider making a smaller version of the dataset with the first 1
 ```bash
 head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 ```
+
+## Reproducing Figures and Tables
+
+### Table 1
+Sohan
+
+### Table 2
+Sohan
+
+### Table 3
+Sohan
+
+### Table 4
+Caleb
+
+### Figure 1
+Jiaqi
+
+### Table 5
+Caleb
+
+### Figure 2
+Caleb
+
+### Table 6
+Caleb
+
+### Table 7
+Caleb
+...
+
+---
+Depreicated
+
+Todo: Sohan and Caleb
+
+### Fitting Contextualized Networks
+
+Todo: Sohan
 
 ## Run Experiments
 
