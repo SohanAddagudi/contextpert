@@ -24,7 +24,7 @@ seed_everything(RANDOM_STATE, workers=True)
 
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision('highest')
 
 
 def main():
@@ -376,9 +376,11 @@ def main():
 
         checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, filename='best_model')
 
+        # CHANGE 2: Added deterministic=True to Trainer
         trainer = Trainer(
             default_root_dir=RESULTS_DIR, max_epochs=10, accelerator='auto', devices='auto',
             callbacks=[checkpoint_callback],
+            deterministic=True
         )
         trainer.fit(contextualized_model, datamodule=datamodule)
 
@@ -391,8 +393,10 @@ def main():
         output_dir = Path(checkpoint_callback.best_model_path).parent / 'predictions'
         writer_callback = PredictionWriter(output_dir=output_dir, write_interval='batch')
 
+        # CHANGE 3: Added deterministic=True to prediction Trainer
         pred_trainer = Trainer(
             default_root_dir=RESULTS_DIR, accelerator='auto', devices='auto', callbacks=[writer_callback],
+            deterministic=True
         )
         print("Making predictions on full dataset (train + test)...")
         pred_trainer.predict(contextualized_model, datamodule=datamodule, ckpt_path=checkpoint_callback.best_model_path)
@@ -492,7 +496,7 @@ def main():
 
         
         print(f"\nPer-cell performance breakdown:")
-        print("Cell ID               Train MSE    Test MSE     Train N  Test N")
+        print("Cell ID                Train MSE    Test MSE     Train N  Test N")
         print("─" * 60)
         for cell_id in sorted(np.union1d(cell_ids_train, cell_ids_test)):
             tr_mask, te_mask = (cell_ids_train == cell_id), (cell_ids_test == cell_id)
