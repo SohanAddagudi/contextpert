@@ -19,7 +19,7 @@ seed_everything(10, workers=True)
 
 DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
 
-PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'trt_cp.csv'
+PATH_L1000 = DATA_DIR / 'trt_cp_smiles.csv'
 PATH_CTLS = DATA_DIR / 'ctrls.csv'
 EMBEDDING_NPZ_FILE = DATA_DIR / 'gene_embeddings' / 'chemberta_embeddings.npz'
 PATH_SPLIT_MAP = DATA_DIR / 'gene_embeddings' / 'unseen_perturbation_splits' / 'trt_cp_split_map.csv'
