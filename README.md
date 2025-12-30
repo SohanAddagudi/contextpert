@@ -68,7 +68,29 @@ Sohan
 Sohan
 
 ### Table 3 (MSE of inferred networks on a context-held-out split for various perturbation types using different context representations)
-Sohan
+
+The following scripts correspond to the different context-representation settings used in Table 3:
+
+- `table3_cellvsnet_molecule_chemberta.py`  
+  Uses **ChemBERTa molecular embeddings** as the perturbation context.
+
+- `table3_cellvsnet_molecule_fingerprint.py`  
+  Uses **molecular fingerprint representations** as the perturbation context.
+
+- `table_3_cellvsnet_gene.py`  
+  Uses **gene-based context representations**.
+
+#### Running Table 3 Experiments
+
+Each script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
+
+- `trt_cp` – compound perturbations  
+- `trt_sh` – shRNA perturbations  
+- `trt_oe` – overexpression perturbations  
+- `trt_lig` – ligand perturbations  
+
+`table_3_cellvsnet_gene.py` is preset with the gene representations used in table 3.
+
 
 ### Table 4 (Disease Retrieval: Predicting Disease Indications for Drugs with Novel Targets)
 Caleb
