@@ -84,7 +84,7 @@ The following scripts correspond to the different context-representation setting
 
 Each script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
 
-- `trt_cp` – compound perturbations  
+- `trt_cp` – chemical perturbations  
 - `trt_sh` – shRNA perturbations  
 - `trt_oe` – overexpression perturbations  
 - `trt_lig` – ligand perturbations  
