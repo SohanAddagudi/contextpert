@@ -61,31 +61,31 @@ head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 
 ## Reproducing Figures and Tables
 
-### Table 1
+### Table 1 (MSE of inferred networks on a sample-held-out split for control measurements.)
 Sohan
 
-### Table 2
+### Table 2 (MSE of inferred networks on a sample-held-out split for perturbed expression measurements)
 Sohan
 
-### Table 3
+### Table 3 (MSE of inferred networks on a context-held-out split for various perturbation types using different context representations)
 Sohan
 
-### Table 4
+### Table 4 (Disease Retrieval: Predicting Disease Indications for Drugs with Novel Targets)
 Caleb
 
-### Figure 1
+### Figure 1 
 Jiaqi
 
-### Table 5
+### Table 5 (Drug-Target Retrieval: Matching Synonymous Perturbations Across Modalities)
 Caleb
 
 ### Figure 2
 Caleb
 
-### Table 6
+### Table 6 (DR-Bench coverage by disease)
 Caleb
 
-### Table 7
+### Table 7 (DTR-Bench summary statistics)
 Caleb
 ...
 
