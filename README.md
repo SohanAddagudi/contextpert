@@ -65,7 +65,18 @@ head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 Sohan
 
 ### Table 2 (MSE of inferred networks on a sample-held-out split for perturbed expression measurements)
-Sohan
+
+This experiment evaluates **network inference performance on perturbed expression data** using a **sample-held-out split**. Models are trained and tested on the same perturbation contexts, but individual samples are held out to assess generalization at the sample level.
+
+#### Running Table 2 Experiments
+
+Set the desired model configuration directly in the script:
+
+```
+MODEL_MODE = 'population'        # or 'cell_specific', 'contextualized'
+CELL_CONTEXT_MODE = 'expression' # 'expression', or 'onehot' (contextualized only)
+USE_FULL_CONTEXT_FEATURES = True # include dose and time (contextualized only)
+```
 
 ### Table 3 (MSE of inferred networks on a context-held-out split for various perturbation types using different context representations)
 
