@@ -94,7 +94,7 @@ Each script should be run **for all perturbation types** by setting `pert_to_fit
 
 ### Table 4 (Disease Retrieval: Predicting Disease Indications for Drugs with Novel Targets)
 
-This experiment evaluates **disease retrieval performance** for small-molecule drugs using **cell-level perturbation representations**. The goal is to assess whether virtual screening approaches can capture similarity between drugs that produce similar **cellular effects**, even when they act on **different molecular targets**.
+This experiment evaluates **disease retrieval performance** for small-molecule drug representations. The goal is to assess whether virtual screening approaches can capture similarity between drugs that produce similar **cellular effects**, even when they act on **different molecular targets**.
 
 Evaluation is performed using **Hits@k** with  
 *k* ∈ {1, 5, 10, 25}.
@@ -116,7 +116,35 @@ python sm_cohesion_random_submission.py
 Jiaqi
 
 ### Table 5 (Drug-Target Retrieval: Matching Synonymous Perturbations Across Modalities)
-Caleb
+
+This experiment evaluates **cross-modal retrieval** between **small-molecule drug perturbations** and **genetic target perturbations**, testing whether perturbations with similar cell-level effects can be matched across modalities.
+
+Two retrieval tasks are evaluated:
+
+1. **Drug → Target retrieval**  
+   Given a small-molecule drug perturbation, retrieve its corresponding genetic target perturbation.
+
+2. **Target → Drug retrieval**  
+   Given a genetic perturbation (shRNA knockdown), retrieve small-molecule drugs that target the same gene.
+
+Evaluation metrics are:
+- **AUROC** and **AUPRC** for graph reconstruction  
+- **Hits@k** for query-level retrieval with *k* ∈ {1, 5, 10, 50}
+
+Expression-based representations are derived from LINCS L1000 small-molecule and shRNA data. PCA-based baselines apply dimensionality reduction to expression features.
+
+#### Running Table 5 Experiments
+
+Each script generates a submission for a specific perturbation representation:
+
+```
+python drug_target_networks_submission.py
+python drug_target_targetnetworks_submission.py
+python drug_target_expression_submission.py
+python drug_target_metagenes_submission.py
+python drug_target_embedding_3m_submission.py
+python drug_target_random_submission.py
+```
 
 ### Figure 2
 Caleb
