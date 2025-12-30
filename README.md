@@ -78,7 +78,7 @@ The following scripts correspond to the different context-representation setting
   Uses **molecular fingerprint representations** as the perturbation context.
 
 - `table_3_cellvsnet_gene.py`  
-  Uses **gene-based context representations**.
+  Uses **target-based context representations**.
 
 #### Running Table 3 Experiments
 
@@ -89,11 +89,28 @@ Each script should be run **for all perturbation types** by setting `pert_to_fit
 - `trt_oe` – overexpression perturbations  
 - `trt_lig` – ligand perturbations  
 
-`table_3_cellvsnet_gene.py` is preset with the gene representations used in table 3.
+`table_3_cellvsnet_gene.py` is preset with the target representations used in table 3.
 
 
 ### Table 4 (Disease Retrieval: Predicting Disease Indications for Drugs with Novel Targets)
-Caleb
+
+This experiment evaluates **disease retrieval performance** for small-molecule drugs using **cell-level perturbation representations**. The goal is to assess whether virtual screening approaches can capture similarity between drugs that produce similar **cellular effects**, even when they act on **different molecular targets**.
+
+Evaluation is performed using **Hits@k** with  
+*k* ∈ {1, 5, 10, 25}.
+
+#### Running Table 4 Experiments
+
+Each script generates a submission corresponding to a different perturbation representation:
+
+```
+python sm_cohesion_embedding_3m_submission.py
+python sm_cohesion_expression_submission.py
+python sm_cohesion_metagenes_submission.py
+python sm_cohesion_morgan_submission.py
+python sm_cohesion_networks_submission.py
+python sm_cohesion_random_submission.py
+```
 
 ### Figure 1 
 Jiaqi
