@@ -13,7 +13,7 @@
 #
 #   2. Download checkpoint:
 #      See https://github.com/abhinadduri/panspecies-dti/blob/main/checkpoints/README.md
-#      Download saprot.ckpt and place in checkpoints/
+#      Download sprint.ckpt and place in checkpoints/
 #
 #   3. Run 01_prepare_inputs.py first to generate drugs.csv and targets.csv
 #

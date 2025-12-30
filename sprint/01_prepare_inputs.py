@@ -1,17 +1,30 @@
 import os
+import sys
 import json
+import argparse
+from pathlib import Path
 import pandas as pd
 import mygene
 import requests
 from tqdm import tqdm
 import time
+from Bio.PDB import alphafold_db
 from pathlib import Path
+
+# Parse arguments
+parser = argparse.ArgumentParser(description='Prepare SPRINT inputs')
+parser.add_argument('--no-structure', action='store_true',
+                    help='Use plain AA sequences instead of structure-aware sequences')
+args = parser.parse_args()
+
+USE_STRUCTURE = not args.no_structure
 
 DATA_DIR = os.environ.get('CONTEXTPERT_DATA_DIR')
 if not DATA_DIR:
     raise ValueError("Please set CONTEXTPERT_DATA_DIR environment variable")
 
 OUTPUT_DIR = os.path.join(DATA_DIR, 'sprint')
+STRUCTURES_DIR = os.path.join(OUTPUT_DIR, 'alphafold_structures')
 
 # Prepare drugs.csv for SPRINT embedding
 def prepare_drugs():
@@ -103,6 +116,47 @@ def fetch_uniprot_sequence(uniprot_id: str, max_retries: int = 3) -> str | None:
     return None
 
 
+def download_alphafold_structure(uniprot_id: str, output_dir: str, max_retries: int = 3) -> str | None:
+    """
+    Download AlphaFold structure from AlphaFold DB.
+    """
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Check if already downloaded (any version)
+    existing = list(out_dir.glob(f"AF-{uniprot_id}-*.cif"))
+    if existing:
+        return str(existing[0])
+    
+    for attempt in range(max_retries):
+        try:
+            # Query AlphaFold DB API for predictions
+            preds = list(alphafold_db.get_predictions(uniprot_id))
+            if not preds:
+                return None
+            
+            # Prefer fragment F1 (canonical single-chain) when available
+            def score_pred(p):
+                entry_id = str(p.get("entryId", ""))
+                # F1 is the canonical fragment
+                return (0 if "-F1" in entry_id else 1, entry_id)
+            
+            pred = sorted(preds, key=score_pred)[0]
+            
+            # Download the CIF file using Biopython's helper
+            cif_path = alphafold_db.download_cif_for(pred, directory=str(out_dir))
+            return cif_path
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)
+            else:
+                # Log the error for debugging
+                print(f"  Warning: Failed to download {uniprot_id}: {e}")
+    
+    return None
+
+
 def prepare_targets():
     """
     Prepare targets.csv for SPRINT embedding.
@@ -111,6 +165,10 @@ def prepare_targets():
     """
     print("\n" + "=" * 80)
     print("PART 2: PREPARING SPRINT TARGET INPUT")
+    if USE_STRUCTURE:
+        print("(Mode: Structure-aware sequences via AlphaFold + FoldSeek)")
+    else:
+        print("(Mode: Plain amino acid sequences)")
     print("=" * 80)
     
     # Load DTR-Bench to get target IDs
@@ -172,97 +230,245 @@ def prepare_targets():
     print(f"  Mapped to UniProt: {len(ensembl_to_uniprot):,}")
     print(f"  Unmapped: {len(unmapped_ensembl):,}")
     
-    # Step 2: Fetch protein sequences from UniProt
-    print("\n" + "-" * 40)
-    print("Step 2: Fetching protein sequences from UniProt")
-    print("-" * 40)
-    
-    # Get unique UniProt IDs
-    unique_uniprot_ids = list(set(ensembl_to_uniprot.values()))
-    print(f"Fetching sequences for {len(unique_uniprot_ids)} unique UniProt IDs...")
-    
-    uniprot_to_sequence = {}
-    failed_uniprot = []
-    
-    for uniprot_id in tqdm(unique_uniprot_ids, desc="Fetching"):
-        sequence = fetch_uniprot_sequence(uniprot_id)
-        if sequence:
-            uniprot_to_sequence[uniprot_id] = sequence
-        else:
-            failed_uniprot.append(uniprot_id)
-        
-        # Rate limiting (UniProt recommends ~10 req/sec for unauthenticated)
-        time.sleep(0.1)
-    
-    print(f"  Fetched: {len(uniprot_to_sequence):,}")
-    print(f"  Failed: {len(failed_uniprot):,}")
-    
-    # Step 3: Create final targets CSV
-    print("\n" + "-" * 40)
-    print("Step 3: Creating SPRINT targets CSV")
-    print("-" * 40)
-    
-    target_data = []
-    missing_targets = []
-    
+    # Save UniProt mapping (useful for both modes)
+    mapping_data = []
     for ensembl_id in target_ids:
         uniprot_id = ensembl_to_uniprot.get(ensembl_id)
         symbol = ensembl_to_symbol.get(ensembl_id, '')
+        mapping_data.append({
+            'ensembl_id': ensembl_id,
+            'uniprot_id': uniprot_id,
+            'gene_symbol': symbol
+        })
+    
+    mapping_df = pd.DataFrame(mapping_data)
+    mapping_path = os.path.join(OUTPUT_DIR, 'uniprot_mapping.csv')
+    mapping_df.to_csv(mapping_path, index=False)
+    print(f"Saved: {mapping_path}")
+    
+    if USE_STRUCTURE:
+        # Download AlphaFold structures
+        print("\n" + "-" * 40)
+        print("Step 2: Downloading AlphaFold structures")
+        print("-" * 40)
         
-        if uniprot_id and uniprot_id in uniprot_to_sequence:
-            sequence = uniprot_to_sequence[uniprot_id]
-            target_data.append({
-                'target_id': ensembl_id,
-                'uniprot_id': uniprot_id,
-                'gene_symbol': symbol,
-                'Target Sequence': sequence  # SPRINT requires this exact column name
-            })
-        else:
-            missing_targets.append({
-                'ensembl_id': ensembl_id,
-                'uniprot_id': uniprot_id,
-                'symbol': symbol,
-                'reason': 'no_uniprot' if not uniprot_id else 'no_sequence'
-            })
+        os.makedirs(STRUCTURES_DIR, exist_ok=True)
+        
+        unique_uniprot_ids = list(set(ensembl_to_uniprot.values()))
+        print(f"Downloading structures for {len(unique_uniprot_ids)} unique UniProt IDs...")
+        
+        uniprot_to_structure = {}
+        failed_structures = []
+        
+        for uniprot_id in tqdm(unique_uniprot_ids, desc="Downloading"):
+            structure_path = download_alphafold_structure(uniprot_id, STRUCTURES_DIR)
+            if structure_path:
+                uniprot_to_structure[uniprot_id] = structure_path
+            else:
+                failed_structures.append(uniprot_id)
+            
+            # Rate limiting
+            time.sleep(0.1)
+        
+        print(f"  Downloaded: {len(uniprot_to_structure):,}")
+        print(f"  Failed: {len(failed_structures):,}")
+        
+        # Create structure file list for FoldSeek processing
+        print("\n" + "-" * 40)
+        print("Step 3: Creating structure mapping for FoldSeek")
+        print("-" * 40)
+        
+        structure_data = []
+        missing_targets = []
+        
+        for ensembl_id in target_ids:
+            uniprot_id = ensembl_to_uniprot.get(ensembl_id)
+            symbol = ensembl_to_symbol.get(ensembl_id, '')
+            
+            if uniprot_id and uniprot_id in uniprot_to_structure:
+                structure_data.append({
+                    'target_id': ensembl_id,
+                    'uniprot_id': uniprot_id,
+                    'gene_symbol': symbol,
+                    'structure_path': uniprot_to_structure[uniprot_id]
+                })
+            else:
+                missing_targets.append({
+                    'ensembl_id': ensembl_id,
+                    'uniprot_id': uniprot_id,
+                    'symbol': symbol,
+                    'reason': 'no_uniprot' if not uniprot_id else 'no_structure'
+                })
+        
+        structure_df = pd.DataFrame(structure_data)
+        
+        print(f"  Targets with structures: {len(structure_df):,}")
+        print(f"  Missing targets: {len(missing_targets):,}")
+        if len(target_ids) > 0:
+            print(f"  Coverage: {len(structure_df)/len(target_ids)*100:.1f}%")
+        
+        # Guard: fail early if no structures were obtained
+        if structure_df.empty or 'target_id' not in structure_df.columns:
+            print("\n" + "=" * 60)
+            print("ERROR: No AlphaFold structures were downloaded!")
+            print("=" * 60)
+            print("Possible causes:")
+            print("  1. Network/firewall blocking alphafold.ebi.ac.uk")
+            print("  2. UniProt mapping failed (check uniprot_mapping.csv)")
+            print("  3. AlphaFold DB doesn't have structures for these proteins")
+            print("\nTo debug, try:")
+            print("  curl -s 'https://alphafold.ebi.ac.uk/api/prediction/P35367' | head")
+            print("\nAlternative: use sequence-only mode (no structure tokens):")
+            print("  python 01_prepare_inputs.py --no-structure")
+            sys.exit(1)
+        
+        # Save structure mapping
+        structure_map_path = os.path.join(OUTPUT_DIR, 'structure_mapping.csv')
+        structure_df.to_csv(structure_map_path, index=False)
+        print(f"\nSaved: {structure_map_path}")
+        
+        # Save target_id order for alignment
+        target_ids_path = os.path.join(OUTPUT_DIR, 'target_ids.txt')
+        with open(target_ids_path, 'w') as f:
+            for target_id in structure_df['target_id']:
+                f.write(f"{target_id}\n")
+        print(f"Saved: {target_ids_path}")
+        
+        # Save report
+        report = {
+            'mode': 'structure-aware',
+            'total_ensembl_ids': len(target_ids),
+            'mapped_to_uniprot': len(ensembl_to_uniprot),
+            'structures_downloaded': len(uniprot_to_structure),
+            'final_targets': len(structure_df),
+            'coverage_pct': round(len(structure_df)/len(target_ids)*100, 2),
+            'unmapped_ensembl': unmapped_ensembl,
+            'failed_structure_download': failed_structures,
+            'missing_targets': missing_targets
+        }
+        
+        report_path = os.path.join(OUTPUT_DIR, 'mapping_report.json')
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        print(f"Saved: {report_path}")
+        
+        print(f"\n✓ Structure preparation complete: {len(structure_df)} targets")
+        print(f"\n" + "=" * 80)
+        print("NEXT STEP: Generate structure-aware sequences with FoldSeek")
+        print("=" * 80)
+        print(f"""
+Run the following in the SPRINT repo (panspecies-dti):
+
+    cd /path/to/panspecies-dti
     
-    sprint_targets = pd.DataFrame(target_data)
+    # For each structure file, run:
+    python utils/structure_to_saprot.py \\
+        -I {STRUCTURES_DIR}/AF-<UNIPROT_ID>-F1-model_v4.cif \\
+        --chain A \\
+        -O {OUTPUT_DIR}/targets_foldseek.csv
     
-    print(f"  Targets with sequences: {len(sprint_targets):,}")
-    print(f"  Missing targets: {len(missing_targets):,}")
-    print(f"  Coverage: {len(sprint_targets)/len(target_ids)*100:.1f}%")
-    
-    # Save targets CSV
-    targets_path = os.path.join(OUTPUT_DIR, 'targets.csv')
-    sprint_targets.to_csv(targets_path, index=False)
-    print(f"\nSaved: {targets_path}")
-    
-    # Save target_id order for alignment
-    target_ids_path = os.path.join(OUTPUT_DIR, 'target_ids.txt')
-    with open(target_ids_path, 'w') as f:
-        for target_id in sprint_targets['target_id']:
-            f.write(f"{target_id}\n")
-    print(f"Saved: {target_ids_path}")
-    
-    # Save mapping report
-    report = {
-        'total_ensembl_ids': len(target_ids),
-        'mapped_to_uniprot': len(ensembl_to_uniprot),
-        'sequences_fetched': len(uniprot_to_sequence),
-        'final_targets': len(sprint_targets),
-        'coverage_pct': round(len(sprint_targets)/len(target_ids)*100, 2),
-        'unmapped_ensembl': unmapped_ensembl,
-        'failed_uniprot_fetch': failed_uniprot,
-        'missing_targets': missing_targets
-    }
-    
-    report_path = os.path.join(OUTPUT_DIR, 'mapping_report.json')
-    with open(report_path, 'w') as f:
-        json.dump(report, f, indent=2)
-    print(f"Saved: {report_path}")
-    
-    print(f"\n✓ Target preparation complete: {len(sprint_targets)} targets")
-    
-    return sprint_targets
+    # Or use the helper script we provide:
+    bash {os.path.dirname(os.path.abspath(__file__))}/02a_run_foldseek.sh
+
+After generating targets_foldseek.csv, rename it to targets.csv:
+    mv {OUTPUT_DIR}/targets_foldseek.csv {OUTPUT_DIR}/targets.csv
+""")
+        
+        return structure_df
+        
+    else:
+        # Step 2: Fetch protein sequences from UniProt
+        print("\n" + "-" * 40)
+        print("Step 2: Fetching protein sequences from UniProt")
+        print("-" * 40)
+        
+        unique_uniprot_ids = list(set(ensembl_to_uniprot.values()))
+        print(f"Fetching sequences for {len(unique_uniprot_ids)} unique UniProt IDs...")
+        
+        uniprot_to_sequence = {}
+        failed_uniprot = []
+        
+        for uniprot_id in tqdm(unique_uniprot_ids, desc="Fetching"):
+            sequence = fetch_uniprot_sequence(uniprot_id)
+            if sequence:
+                uniprot_to_sequence[uniprot_id] = sequence
+            else:
+                failed_uniprot.append(uniprot_id)
+            
+            time.sleep(0.1)
+        
+        print(f"  Fetched: {len(uniprot_to_sequence):,}")
+        print(f"  Failed: {len(failed_uniprot):,}")
+        
+        # Step 3: Create targets CSV
+        print("\n" + "-" * 40)
+        print("Step 3: Creating SPRINT targets CSV")
+        print("-" * 40)
+        
+        target_data = []
+        missing_targets = []
+        
+        for ensembl_id in target_ids:
+            uniprot_id = ensembl_to_uniprot.get(ensembl_id)
+            symbol = ensembl_to_symbol.get(ensembl_id, '')
+            
+            if uniprot_id and uniprot_id in uniprot_to_sequence:
+                sequence = uniprot_to_sequence[uniprot_id]
+                target_data.append({
+                    'target_id': ensembl_id,
+                    'uniprot_id': uniprot_id,
+                    'gene_symbol': symbol,
+                    'Target Sequence': sequence
+                })
+            else:
+                missing_targets.append({
+                    'ensembl_id': ensembl_id,
+                    'uniprot_id': uniprot_id,
+                    'symbol': symbol,
+                    'reason': 'no_uniprot' if not uniprot_id else 'no_sequence'
+                })
+        
+        sprint_targets = pd.DataFrame(target_data)
+        
+        print(f"  Targets with sequences: {len(sprint_targets):,}")
+        print(f"  Missing targets: {len(missing_targets):,}")
+        print(f"  Coverage: {len(sprint_targets)/len(target_ids)*100:.1f}%")
+        
+        # Save targets CSV
+        targets_path = os.path.join(OUTPUT_DIR, 'targets.csv')
+        sprint_targets.to_csv(targets_path, index=False)
+        print(f"\nSaved: {targets_path}")
+        
+        # Save target_id order for alignment
+        target_ids_path = os.path.join(OUTPUT_DIR, 'target_ids.txt')
+        with open(target_ids_path, 'w') as f:
+            for target_id in sprint_targets['target_id']:
+                f.write(f"{target_id}\n")
+        print(f"Saved: {target_ids_path}")
+        
+        # Save report
+        report = {
+            'mode': 'plain-sequence',
+            'total_ensembl_ids': len(target_ids),
+            'mapped_to_uniprot': len(ensembl_to_uniprot),
+            'sequences_fetched': len(uniprot_to_sequence),
+            'final_targets': len(sprint_targets),
+            'coverage_pct': round(len(sprint_targets)/len(target_ids)*100, 2),
+            'unmapped_ensembl': unmapped_ensembl,
+            'failed_uniprot_fetch': failed_uniprot,
+            'missing_targets': missing_targets
+        }
+        
+        report_path = os.path.join(OUTPUT_DIR, 'mapping_report.json')
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        print(f"Saved: {report_path}")
+        
+        print(f"\n✓ Target preparation complete: {len(sprint_targets)} targets")
+        print("\nNote: Using plain sequences. SPRINT will use mask tokens for structure.")
+        print("For better performance, run without --no-structure flag.")
+        
+        return sprint_targets
 
 
 if __name__ == '__main__':
@@ -271,6 +477,7 @@ if __name__ == '__main__':
     print("=" * 80)
     print(f"\nData directory: {DATA_DIR}")
     print(f"Output directory: {OUTPUT_DIR}")
+    print(f"Mode: {'Structure-aware (AlphaFold + FoldSeek)' if USE_STRUCTURE else 'Plain sequences'}")
     
     # Prepare drugs
     drugs_df = prepare_drugs()
@@ -283,8 +490,11 @@ if __name__ == '__main__':
     print("PREPARATION COMPLETE")
     print("=" * 80)
     print(f"\nOutputs in: {OUTPUT_DIR}/")
-    print(f"  drugs.csv          - {len(drugs_df)} drugs with SMILES")
-    print(f"  targets.csv        - {len(targets_df)} targets with sequences")
-    print(f"  drug_ids.txt       - Drug ID order for alignment")
-    print(f"  target_ids.txt     - Target ID order for alignment")
-    print(f"  mapping_report.json - Coverage report")
+    print(f"  drugs.csv              - {len(drugs_df)} drugs with SMILES")
+    
+    if USE_STRUCTURE:
+        print(f"  structure_mapping.csv  - {len(targets_df)} targets with structure paths")
+        print(f"  alphafold_structures/  - Downloaded CIF files")
+        print(f"  uniprot_mapping.csv    - Ensembl -> UniProt mapping")
+        print(f"  target_ids.txt         - Target ID order for alignment")
+        print(f"  mapping_report.json    - Coverage report")
