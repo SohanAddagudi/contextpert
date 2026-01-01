@@ -123,8 +123,16 @@ python sm_cohesion_networks_submission.py
 python sm_cohesion_random_submission.py
 ```
 
-### Figure 1 
-Jiaqi
+### Figure 2 (Disease Cohesion Clustermaps) 
+
+This script generates **drug similarity clustermaps** comparing how drugs organize based on different representations (gene networks, expression, metagenes, or molecular fingerprints). Drugs are annotated with their FDA-approved disease indications to visualize whether therapeutically similar drugs cluster together.
+
+```
+python table_generation/figure2.py --representation metagenes
+python table_generation/figure2.py --representation expression
+python table_generation/figure2.py --representation morgan
+python table_generation/figure2.py --representation network --network_results_dir /path/to/outputs
+```
 
 ### Table 5 (Drug-Target Retrieval: Matching Synonymous Perturbations Across Modalities)
 
@@ -157,7 +165,7 @@ python drug_target_embedding_3m_submission.py
 python drug_target_random_submission.py
 ```
 
-### Figure 2
+### Figure 3
 Caleb
 
 ### Table 6 (DR-Bench coverage by disease)
