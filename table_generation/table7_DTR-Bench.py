@@ -38,7 +38,7 @@ def map_ensg_to_symbol(ensg_ids):
 
 def main():
     print("="*80)
-    print("GENERATING TABLE 2: DRUG-TARGET MAPPING COVERAGE")
+    print("GENERATING TABLE 7: DRUG-TARGET MAPPING COVERAGE")
     print("="*80)
     
     # Load drug-target pairs
