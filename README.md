@@ -169,10 +169,15 @@ python drug_target_random_submission.py
 Caleb
 
 ### Table 6 (DR-Bench coverage by disease)
-Caleb
+This table reports per-disease coverage statistics for DR-Bench, including the number of unique drugs and molecular targets associated with each disease. Coverage is computed from OpenTargets–LINCS disease–drug–target triples and is intended to characterize benchmark composition rather than model performance.
+
+- `table6_DR-Bench.py`  
 
 ### Table 7 (DTR-Bench summary statistics)
-Caleb
+This table reports global summary statistics for the Drug–Target Retrieval (DTR) benchmark, including dataset size and composition across drugs, targets, perturbations, and evaluation pairs. These statistics provide an overview of benchmark scale and modality coverage.
+
+- `table7_DTR-Bench.py`
+  
 ...
 
 ---
