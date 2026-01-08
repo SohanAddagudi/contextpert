@@ -61,32 +61,123 @@ head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 
 ## Reproducing Figures and Tables
 
-### Table 1
+### Table 1 (MSE of inferred networks on a sample-held-out split for control measurements.)
 Sohan
 
-### Table 2
-Sohan
+### Table 2 (MSE of inferred networks on a sample-held-out split for perturbed expression measurements)
 
-### Table 3
-Sohan
+This experiment evaluates **network inference performance on perturbed expression data** using a **sample-held-out split**. Models are trained and tested on the same perturbation contexts, but individual samples are held out to assess generalization at the sample level.
 
-### Table 4
+#### Running Table 2 Experiments
+
+Set the desired model configuration directly in the script:
+
+```
+MODEL_MODE = 'population'        # or 'cell_specific', 'contextualized'
+CELL_CONTEXT_MODE = 'expression' # 'expression', or 'onehot' (contextualized only)
+USE_FULL_CONTEXT_FEATURES = True # include dose and time (contextualized only)
+```
+
+### Table 3 (MSE of inferred networks on a context-held-out split for various perturbation types using different context representations)
+
+The following scripts correspond to the different context-representation settings used in Table 3:
+
+- `table3_cellvsnet_molecule_chemberta.py`  
+  Uses **ChemBERTa molecular embeddings** as the perturbation context.
+
+- `table3_cellvsnet_molecule_fingerprint.py`  
+  Uses **molecular fingerprint representations** as the perturbation context.
+
+- `table_3_cellvsnet_gene.py`  
+  Uses **target-based context representations**.
+
+#### Running Table 3 Experiments
+
+Each script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
+
+- `trt_cp` – chemical perturbations  
+- `trt_sh` – shRNA perturbations  
+- `trt_oe` – overexpression perturbations  
+- `trt_lig` – ligand perturbations  
+
+`table_3_cellvsnet_gene.py` is preset with the target representations used in table 3.
+
+
+### Table 4 (Disease Retrieval: Predicting Disease Indications for Drugs with Novel Targets)
+
+This experiment evaluates **disease retrieval performance** for small-molecule drug representations. The goal is to assess whether virtual screening approaches can capture similarity between drugs that produce similar **cellular effects**, even when they act on **different molecular targets**.
+
+Evaluation is performed using **Hits@k** with  
+*k* ∈ {1, 5, 10, 25}.
+
+#### Running Table 4 Experiments
+
+Each script generates a submission corresponding to a different perturbation representation:
+
+```
+python sm_cohesion_embedding_3m_submission.py
+python sm_cohesion_expression_submission.py
+python sm_cohesion_metagenes_submission.py
+python sm_cohesion_morgan_submission.py
+python sm_cohesion_networks_submission.py
+python sm_cohesion_random_submission.py
+```
+
+### Figure 2 (Disease Cohesion Clustermaps) 
+
+This script generates **drug similarity clustermaps** comparing how drugs organize based on different representations (gene networks, expression, metagenes, or molecular fingerprints). Drugs are annotated with their FDA-approved disease indications to visualize whether therapeutically similar drugs cluster together.
+
+```
+python table_generation/figure2.py --representation metagenes
+python table_generation/figure2.py --representation expression
+python table_generation/figure2.py --representation morgan
+python table_generation/figure2.py --representation network --network_results_dir /path/to/outputs
+```
+
+### Table 5 (Drug-Target Retrieval: Matching Synonymous Perturbations Across Modalities)
+
+This experiment evaluates **cross-modal retrieval** between **small-molecule drug perturbations** and **genetic target perturbations**, testing whether perturbations with similar cell-level effects can be matched across modalities.
+
+Two retrieval tasks are evaluated:
+
+1. **Drug → Target retrieval**  
+   Given a small-molecule drug perturbation, retrieve its corresponding genetic target perturbation.
+
+2. **Target → Drug retrieval**  
+   Given a genetic perturbation (shRNA knockdown), retrieve small-molecule drugs that target the same gene.
+
+Evaluation metrics are:
+- **AUROC** and **AUPRC** for graph reconstruction  
+- **Hits@k** for query-level retrieval with *k* ∈ {1, 5, 10, 50}
+
+Expression-based representations are derived from LINCS L1000 small-molecule and shRNA data. PCA-based baselines apply dimensionality reduction to expression features.
+
+#### Running Table 5 Experiments
+
+Each script generates a submission for a specific perturbation representation:
+
+```
+python drug_target_networks_submission.py
+python drug_target_targetnetworks_submission.py
+python drug_target_expression_submission.py
+python drug_target_metagenes_submission.py
+python drug_target_embedding_3m_submission.py
+python drug_target_random_submission.py
+```
+
+### Figure 3
 Caleb
 
-### Figure 1
-Jiaqi
+### Table 6 (DR-Bench coverage by disease)
+This table reports per-disease coverage statistics for DR-Bench, including the number of unique drugs and molecular targets associated with each disease. Coverage is computed from OpenTargets–LINCS disease–drug–target triples and is intended to characterize benchmark composition rather than model performance.
 
-### Table 5
-Caleb
+- `table6_DR-Bench.py`  
 
-### Figure 2
-Caleb
+### Table 7 (DTR-Bench summary statistics)
+This table reports global summary statistics for the Drug–Target Retrieval (DTR) benchmark, including dataset size and composition across drugs, targets, perturbations, and evaluation pairs. These statistics provide an overview of benchmark scale and modality coverage.
 
-### Table 6
-Caleb
-
-### Table 7
-Caleb
+- `table7_DTR-Bench.py`
+  
 ...
 
 ---

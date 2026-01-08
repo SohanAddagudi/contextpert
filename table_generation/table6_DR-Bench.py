@@ -13,7 +13,7 @@ TOP_N = 10
 
 def main():
     print("="*80)
-    print("GENERATING TABLE 1: DISEASE-TARGET-DRUG COVERAGE")
+    print("GENERATING TABLE 6: DISEASE-TARGET-DRUG COVERAGE")
     print("="*80)
     
     # Load evaluation triples
