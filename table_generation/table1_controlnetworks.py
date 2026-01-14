@@ -6,12 +6,15 @@ from sklearn.preprocessing import StandardScaler
 import os
 import torch
 import lightning as pl
-from contextualized.regression.lightning_modules import ContextualizedCorrelation
-from contextualized.data import CorrelationDataModule
 from lightning import seed_everything, Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from tqdm import tqdm
 import shutil
+from joblib import Parallel, delayed
+from contextualized.regression.lightning_modules import ContextualizedCorrelation
+from contextualized.data import CorrelationDataModule
+from contextualized.baselines.networks import GroupedNetworks, CorrelationNetwork
+
 
 seed_everything(10, workers=True)
 
@@ -20,11 +23,12 @@ DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
 PATH_FULL_DATA = DATA_DIR / 'lincs.csv'
 
 """
-Possible MODEL_MODE options:
-1. 'population': A single global model shared across all contexts (ignores context features).
-2. 'contextualized': Model parameters are modulated dynamically based on the context vector (C).
+ MODEL_MODE:
+population
+cell_specific
+contextualized
 """
-MODEL_MODE = 'population' 
+MODEL_MODE = 'contextualized' 
 CELL_CONTEXT_MODE = 'onehot' 
 USE_FULL_CONTEXT_FEATURES = False 
 
@@ -35,7 +39,6 @@ BATCH_SIZE = 32
 
 seed_everything(RANDOM_STATE, workers=True)
 
-print(f"--- Running Table 1 Reconstruction for Controls ---")
 print(f"MODEL_MODE: {MODEL_MODE}")
 print(f"Targeting Controls: ['ctl_vehicle', 'ctl_vector', 'ctl_untrt']")
 print("---------------------------------------------------\n")
@@ -76,16 +79,23 @@ cell_context_matrix = np.array([cell2vec[cid] for cid in cell_ids])
 pert_dummies = pd.get_dummies(df['pert_id'], drop_first=True).values
 C_global = np.hstack([pert_dummies, cell_context_matrix]).astype(np.float32)
 
+# Lists to store split data
 X_train_list, X_test_list = [], []
 C_train_list, C_test_list = [], []
 nc_test_list = [] 
+# New: Track labels for cell_specific mode
+labels_train_list, labels_test_list = [], []
 
 print("Splitting data...")
+# Map unique cells to integers for cell_specific indexing
+cell_to_int = {cell: i for i, cell in enumerate(unique_cells)}
+
 for cell in tqdm(unique_cells, desc="Splitting by cell line"):
     cell_mask = (cell_ids == cell)
     X_cell = X[cell_mask]
     n_samples = len(X_cell)
     current_nc = df.loc[cell_mask, 'n_c'].iloc[0]
+    current_cell_int = cell_to_int[cell]
     
     if n_samples < 2:
         continue
@@ -98,18 +108,34 @@ for cell in tqdm(unique_cells, desc="Splitting by cell line"):
     else:
         train_idx, test_idx = train_test_split(indices, test_size=TEST_SIZE, random_state=RANDOM_STATE)
     
+    # Data
     X_train_list.append(X_cell[train_idx])
     X_test_list.append(X_cell[test_idx])
+    
+    # Metadata
     nc_test_list.append(np.full(len(test_idx), current_nc))
     
+    # Labels (for cell_specific)
+    labels_train_list.append(np.full(len(train_idx), current_cell_int))
+    labels_test_list.append(np.full(len(test_idx), current_cell_int))
+    
+    # Context (for contextualized)
     C_cell = C_global[cell_mask]
     C_train_list.append(C_cell[train_idx])
     C_test_list.append(C_cell[test_idx])
 
+# Stack everything
 X_train = np.vstack(X_train_list)
 X_test = np.vstack(X_test_list)
 nc_test = np.concatenate(nc_test_list)
 
+labels_train = np.concatenate(labels_train_list)
+labels_test = np.concatenate(labels_test_list)
+
+C_train = np.vstack(C_train_list).astype(np.float32)
+C_test = np.vstack(C_test_list).astype(np.float32)
+
+# Normalization
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
@@ -124,86 +150,125 @@ X_std = np.where(X_std == 0, 1e-6, X_std)
 X_train_norm = (X_train_pca - X_mean) / X_std
 X_test_norm = (X_test_pca - X_mean) / X_std
 
-C_train = np.vstack(C_train_list).astype(np.float32)
-C_test = np.vstack(C_test_list).astype(np.float32)
+# ---------------------------------------------------------------------
+# MODEL TRAINING BRANCHING
+# ---------------------------------------------------------------------
 
-print("\n--- Running Model: Contextualized (Lightning) ---")
+model_obj = None # Container to hold the trained model
+trainer = None   # Only used for contextualized
 
-contextualized_model = ContextualizedCorrelation(
-    context_dim=C_train.shape[1],
-    x_dim=X_train_norm.shape[1],
-    encoder_type='mlp',
-    num_archetypes=16,
-)
+if MODEL_MODE == 'population':
+    print("\n--- Running Model: Population (CorrelationNetwork) ---")
+    model_obj = CorrelationNetwork()
+    model_obj.fit(X_train_norm)
+    print("Population model trained.")
 
-train_idx, val_idx = train_test_split(np.arange(len(X_train_norm)), test_size=0.1, random_state=RANDOM_STATE)
+elif MODEL_MODE == 'cell_specific':
+    print("\n--- Running Model: Cell Specific (GroupedNetworks) ---")
+    model_obj = GroupedNetworks(CorrelationNetwork)
+    unique_train_labels = np.unique(labels_train)
+    
+    def fit_model_for_group(label):
+        mask = labels_train == label
+        X_group = X_train_norm[mask]
+        model = CorrelationNetwork()
+        model.fit(X_group)
+        return (label, model)
 
-datamodule = CorrelationDataModule(
-    C_train=C_train[train_idx], X_train=X_train_norm[train_idx],
-    C_val=C_train[val_idx],     X_val=X_train_norm[val_idx],    
-    C_test=C_test,              X_test=X_test_norm,             
-    C_predict=C_test,           X_predict=X_test_norm, 
-    batch_size=BATCH_SIZE,
-)
+    print(f"Fitting {len(unique_train_labels)} cell-specific models in parallel...")
+    jobs = [delayed(fit_model_for_group)(label) for label in unique_train_labels]
+    results = Parallel(n_jobs=-1)(tqdm(jobs, desc="Training cell models"))
+    model_obj.models = {label: model for label, model in results}
+    print("Cell-specific models trained.")
 
-checkpoint_callback = ModelCheckpoint(
-    monitor='val_loss', mode='min', save_top_k=1, filename='best_model'
-)
+elif MODEL_MODE == 'contextualized':
+    print("\n--- Running Model: Contextualized (Lightning) ---")
+    
+    contextualized_model = ContextualizedCorrelation(
+        context_dim=C_train.shape[1],
+        x_dim=X_train_norm.shape[1],
+        encoder_type='mlp',
+        num_archetypes=50,
+    )
 
-early_stop_callback = EarlyStopping(
-    monitor='val_loss', 
-    patience=1,          
-    mode='min'           
-)
+    tr_idx, val_idx = train_test_split(np.arange(len(X_train_norm)), test_size=0.1, random_state=RANDOM_STATE)
 
-trainer = Trainer(
-    max_epochs=15, 
-    accelerator='auto', devices='auto',
-    callbacks=[checkpoint_callback, early_stop_callback],
-    enable_progress_bar=True
-)
+    datamodule = CorrelationDataModule(
+        C_train=C_train[tr_idx], X_train=X_train_norm[tr_idx],
+        C_val=C_train[val_idx],  X_val=X_train_norm[val_idx],    
+        C_test=C_test,           X_test=X_test_norm,             
+        C_predict=C_test,        X_predict=X_test_norm, 
+        batch_size=BATCH_SIZE,
+    )
 
-trainer.fit(contextualized_model, datamodule=datamodule)
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss', mode='min', save_top_k=1, filename='best_model'
+    )
+    early_stop_callback = EarlyStopping(
+        monitor='val_loss', patience=1, mode='min'            
+    )
 
-print(f"Testing model on training data...")
-trainer.test(contextualized_model, datamodule.train_dataloader())
+    trainer = Trainer(
+        max_epochs=15, 
+        accelerator='auto', devices='auto',
+        callbacks=[checkpoint_callback, early_stop_callback],
+        enable_progress_bar=True
+    )
 
-print(f"Testing model on test data...")
-trainer.test(contextualized_model, datamodule.test_dataloader())
+    trainer.fit(contextualized_model, datamodule=datamodule)
+    model_obj = contextualized_model # Store reference
 
 print("\n" + "="*50)
-print("RUNNING TABLE 1 GENERATION")
+print(f"RUNNING TABLE 1 GENERATION ({MODEL_MODE})")
 print("="*50)
 
-def run_subset_test(name, X_subset, C_subset):
+def get_mse_score(X_subset, C_subset, labels_subset):
+    """
+    Calculates MSE for the subset of data based on the current MODEL_MODE.
+    """
     if len(X_subset) == 0:
         return np.nan
-    
-    datamodule.X_test = X_subset
-    datamodule.C_test = C_subset
-    
-    results = trainer.test(contextualized_model, datamodule=datamodule, verbose=False)
-    
-    score = results[0]['test_loss']
+
+    if MODEL_MODE == 'population':
+        return np.mean(model_obj.measure_mses(X_subset))
+
+    elif MODEL_MODE == 'cell_specific':
+        return np.mean(model_obj.measure_mses(X_subset, labels_subset))
+
+    elif MODEL_MODE == 'contextualized':
+        # Update datamodule to point to subset and run test
+        datamodule.X_test = X_subset
+        datamodule.C_test = C_subset
+        results = trainer.test(model_obj, datamodule=datamodule, verbose=False)
+        return results[0]['test_loss']
+
+def run_subset_report(name, X_sub, C_sub, lbl_sub):
+    score = get_mse_score(X_sub, C_sub, lbl_sub)
     print(f">> {name}: {score:.4f}")
     return score
 
-score_train = run_subset_test("Train Data (Full)", X_train_norm, C_train)
+# 1. Train Full
+score_train = run_subset_report("Train Data (Full)", X_train_norm, C_train, labels_train)
 
-score_test_full = run_subset_test("Test Data (Full)", X_test_norm, C_test)
+# 2. Test Full
+score_test_full = run_subset_report("Test Data (Full)", X_test_norm, C_test, labels_test)
 
+# 3. Test High n_c
 mask_high = nc_test > 3
-score_test_high = run_subset_test("Test Data (nc > 3)", 
-                                  X_test_norm[mask_high], 
-                                  C_test[mask_high])
+score_test_high = run_subset_report("Test Data (nc > 3)", 
+                                    X_test_norm[mask_high], 
+                                    C_test[mask_high], 
+                                    labels_test[mask_high])
 
+# 4. Test Low n_c
 mask_low = nc_test <= 3
-score_test_low = run_subset_test("Test Data (nc <= 3)", 
-                                 X_test_norm[mask_low], 
-                                 C_test[mask_low])
+score_test_low = run_subset_report("Test Data (nc <= 3)", 
+                                   X_test_norm[mask_low], 
+                                   C_test[mask_low], 
+                                   labels_test[mask_low])
 
 print("\n" + "="*45)
-print(f"TABLE 1 RECREATION (MSE)")
+print(f"TABLE 1 RECREATION (MSE) - Mode: {MODEL_MODE}")
 print("-" * 45)
 print(f"{'Condition':<20} | {'MSE':<20}")
 print("-" * 45)
