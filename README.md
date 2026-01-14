@@ -62,7 +62,18 @@ head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 ## Reproducing Figures and Tables
 
 ### Table 1 (MSE of inferred networks on a sample-held-out split for control measurements.)
-Sohan
+
+Run `table1_controlnetworks.py` to reproduce the **Table 1** results: MSE of inferred networks on a **sample-held-out split** using **control perturbation measurements** (`ctl_vehicle`, `ctl_vector`, `ctl_untrt`).
+
+- Trains one of three model modes:
+  - `population`: single global network
+  - `cell_specific`: one network per cell line
+  - `contextualized`
+- Reports MSE for:
+  - Train (Full)
+  - Test (Full)
+  - Test (`n_c > 3`)
+  - Test (`n_c <= 3`)
 
 ### Table 2 (MSE of inferred networks on a sample-held-out split for perturbed expression measurements)
 
