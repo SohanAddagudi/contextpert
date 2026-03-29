@@ -25,146 +25,133 @@ DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 
 # ---------------------
 
+def std_norm(x):
+    s = x.std(axis=0, keepdims=True)
+    return x / np.where(s == 0, 1, s)
+
+
 print("=" * 80)
 print("DRUG-TARGET BETA EVALUATION")
 print("=" * 80)
-print("\nThis example uses learned model parameters (betas) to evaluate")
+print("\nThis example uses learned model parameters (betas + mus) to evaluate")
 print("drug-target interaction prediction:")
-print("  - Drugs: Betas from compound perturbation models (trt_cp)")
-print("  - Targets: Betas from shRNA knockdown models (trt_sh)")
+print("  - Drugs: bsq+mus (upper-tri, std-normed) from compound perturbation models (trt_cp)")
+print("  - Targets: bsq+mus (upper-tri, std-normed) from shRNA knockdown models (trt_sh)")
 print()
 
 
 print("=" * 80)
-print("LOADING DRUG DATA (COMPOUND PERTURBATION BETAS)")
+print("LOADING DRUG DATA (COMPOUND PERTURBATION BETAS + MUS)")
 print("=" * 80)
-pd.set_option('display.max_columns', None)
 # --- Define model paths ---
-CP_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/full_dataset_betas.npy')
-CP_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/fingerprint_trt_cp_preds_drug_target/full_dataset_predictions.csv')
+CP_BETA_PATH = os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_betas.npy')
+CP_MUS_PATH  = os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_mus.npy')
+CP_PRED_CSV_PATH = os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_predictions.csv')
 
 SH_BETA_PATH = os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_betas.npy')
+SH_MUS_PATH  = os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_mus.npy')
 SH_PRED_CSV_PATH = os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_predictions.csv')
 
-# --- Load model betas and instance metadata ---
+# --- Load betas, mus, and metadata ---
 print(f"\nLoading model betas from: {CP_BETA_PATH}")
 cp_betas = np.load(CP_BETA_PATH)
+print(f"Loading model mus from: {CP_MUS_PATH}")
+cp_mus = np.load(CP_MUS_PATH)
 print(f"Loading prediction metadata from: {CP_PRED_CSV_PATH}")
-cp_pred_meta_df = pd.read_csv(CP_PRED_CSV_PATH, usecols=['inst_id'])
+cp_meta = pd.read_csv(CP_PRED_CSV_PATH)
+print(f"  Loaded {len(cp_meta):,} samples | betas: {cp_betas.shape} | mus: {cp_mus.shape}")
 
-# --- Flatten betas ---
-n_samples, n_pcs, _ = cp_betas.shape
-n_features = n_pcs * n_pcs
-print(f"  Loaded betas for {n_samples:,} samples")
-print(f"  Flattening betas into feature vectors of length {n_features:,}")
-feature_cols = [f'beta_{i}' for i in range(n_features)]
-cp_beta_df = pd.DataFrame(cp_betas.reshape(n_samples, n_features), columns=feature_cols)
-cp_model_data_df = pd.concat([cp_pred_meta_df[['inst_id']], cp_beta_df], axis=1)
+# --- Upper-triangular bsq + mus ---
+n_x = cp_mus.shape[-1]
+idx_upper = np.triu_indices(n_x, k=1)
+cp_bsq = cp_betas[:, idx_upper[0], idx_upper[1]] ** 2
+cp_mus_ut = cp_mus[:, idx_upper[0], idx_upper[1]]
+n_feat = cp_bsq.shape[1]
+b_cols = [f'b_{i}' for i in range(n_feat)]
+m_cols = [f'm_{i}' for i in range(n_feat)]
 
-# --- Load LINCS metadata (using the same file as expression script) ---
-trt_cp_path = os.path.join(DATA_DIR, 'trt_cp_smiles_qc.csv')
-print(f"\nLoading LINCS metadata from: {trt_cp_path}")
-lincs_meta_df = pd.read_csv(trt_cp_path)
-print(lincs_meta_df)
-
-# --- Merge betas with metadata ---
-merged_df = pd.merge(cp_model_data_df, lincs_meta_df, on='inst_id', how='left')
-bad_smiles = ['-666', 'restricted']
-merged_df = merged_df[~merged_df['canonical_smiles'].isin(bad_smiles)]
-merged_df = merged_df[merged_df['canonical_smiles'].notna()]
-print(f"  Remaining samples with valid SMILES: {len(merged_df):,}")
-
-# --- Aggregate by pert_id (same as expression script) ---
-print("\nAggregating model (beta) representations by pert_id (BRD ID)")
-agg_cols = feature_cols + ['canonical_smiles']
-model_rep_by_brd = (
-    merged_df.groupby('pert_id')[agg_cols]
-    .agg({**{col: 'mean' for col in feature_cols}, 'canonical_smiles': 'first'})
-    .reset_index()
+# --- Canonicalize SMILES from metadata ---
+smiles_col = cp_meta['canonical_smiles'].apply(
+    lambda s: canonicalize_smiles(s) if pd.notna(s) and s not in ('-666', 'restricted') else None
 )
-print(f"  Aggregated to {len(model_rep_by_brd):,} unique compounds")
 
-# --- Canonicalize SMILES ---
-print("\nCanonicalizing SMILES...")
-def safe_canonicalize(smiles):
-    try:
-        return canonicalize_smiles(smiles)
-    except Exception:
-        return None
+# --- Aggregate by SMILES ---
+print("\nAggregating by SMILES...")
+df_b = pd.DataFrame(cp_bsq, columns=b_cols); df_b['smiles'] = smiles_col.values
+df_m = pd.DataFrame(cp_mus_ut, columns=m_cols); df_m['smiles'] = smiles_col.values
+drug_b = df_b.dropna(subset=['smiles']).groupby('smiles')[b_cols].mean().reset_index()
+drug_m = df_m.dropna(subset=['smiles']).groupby('smiles')[m_cols].mean().reset_index()
+merged_cp = drug_b.merge(drug_m, on='smiles')
+print(f"  Aggregated to {len(merged_cp):,} unique compounds")
 
-model_rep_by_brd['smiles'] = model_rep_by_brd['canonical_smiles'].apply(safe_canonicalize)
-model_rep_by_brd = model_rep_by_brd[model_rep_by_brd['smiles'].notna()].copy()
+# --- Std-norm and concatenate ---
+arr_cp = np.hstack([std_norm(merged_cp[b_cols].values), std_norm(merged_cp[m_cols].values)])
+f_cols = [f'f_{i}' for i in range(arr_cp.shape[1])]
+drug_preds = pd.DataFrame(arr_cp, columns=f_cols)
+drug_preds['smiles'] = merged_cp['smiles'].values
 
-# --- Prepare final drug prediction dataframe ---
-drug_preds = model_rep_by_brd[['smiles'] + feature_cols].copy()
 print(f"\nFinal drug representation:")
 print(f"  Unique compounds: {len(drug_preds)}")
-print(f"  Features (betas): {len(feature_cols)}")
+print(f"  Features (bsq+mus): {len(f_cols)}")
 print(f"  Shape: {drug_preds.shape}")
 
-# Clear memory
-del cp_betas, cp_beta_df, cp_model_data_df, lincs_meta_df, merged_df, model_rep_by_brd
+del cp_betas, cp_mus, df_b, df_m, drug_b, drug_m, merged_cp, arr_cp
 
 # ============================================================================
-# Part 2: Load and Process Target Data (trt_sh Model Betas)
+# Part 2: Load and Process Target Data (trt_sh betas + mus)
 # ============================================================================
 print("\n" + "=" * 80)
-print("LOADING TARGET DATA (shRNA KNOCKDOWN BETAS)")
+print("LOADING TARGET DATA (shRNA KNOCKDOWN BETAS + MUS)")
 print("=" * 80)
 
-
-# --- Load model betas and instance metadata ---
 print(f"\nLoading model betas from: {SH_BETA_PATH}")
 sh_betas = np.load(SH_BETA_PATH)
+print(f"Loading model mus from: {SH_MUS_PATH}")
+sh_mus = np.load(SH_MUS_PATH)
 print(f"Loading prediction metadata from: {SH_PRED_CSV_PATH}")
-sh_pred_meta_df = pd.read_csv(SH_PRED_CSV_PATH, usecols=['inst_id'])
+sh_meta = pd.read_csv(SH_PRED_CSV_PATH)
+print(f"  Loaded {len(sh_meta):,} samples | betas: {sh_betas.shape} | mus: {sh_mus.shape}")
 
-# --- Flatten betas ---
-sh_n_samples, sh_n_pcs, _ = sh_betas.shape
-sh_n_features = sh_n_pcs * sh_n_pcs
-print(f"  Loaded betas for {sh_n_samples:,} samples")
-print(f"  Flattening betas into feature vectors of length {sh_n_features:,}...")
-sh_feature_cols = [f'beta_{i}' for i in range(sh_n_features)]
-sh_beta_df = pd.DataFrame(sh_betas.reshape(sh_n_samples, sh_n_features), columns=sh_feature_cols)
-sh_model_data_df = pd.concat([sh_pred_meta_df[['inst_id']], sh_beta_df], axis=1)
+# --- Upper-triangular bsq + mus ---
+sh_n_x = sh_mus.shape[-1]
+sh_idx_upper = np.triu_indices(sh_n_x, k=1)
+sh_bsq = sh_betas[:, sh_idx_upper[0], sh_idx_upper[1]] ** 2
+sh_mus_ut = sh_mus[:, sh_idx_upper[0], sh_idx_upper[1]]
+sh_n_feat = sh_bsq.shape[1]
+sb_cols = [f'b_{i}' for i in range(sh_n_feat)]
+sm_cols = [f'm_{i}' for i in range(sh_n_feat)]
 
-# --- Load shRNA metadata (using the same annotated file as expression script) ---
+# --- Merge with trt_sh_genes_qc to get ensembl_id ---
 trt_sh_genes_path = os.path.join(DATA_DIR, 'trt_sh_genes_qc.csv')
-print(f"\nLoading shRNA metadata and target annotations from: {trt_sh_genes_path}")
-# We only need inst_id to map to betas and ensembl_id for the target
-sh_meta_df = pd.read_csv(trt_sh_genes_path, low_memory=False)
-# print(sh_meta_df)
+print(f"\nLoading shRNA target annotations from: {trt_sh_genes_path}")
+sh_annot = pd.read_csv(trt_sh_genes_path, usecols=['inst_id', 'ensembl_id'], low_memory=False)
+sh_annot = sh_annot[sh_annot['ensembl_id'].notna()]
+ensembl_ids = sh_meta.merge(sh_annot, on='inst_id', how='left')['ensembl_id'].values
+print(f"  Instances with target annotations: {pd.notna(ensembl_ids).sum():,}")
+print(f"  Unique target genes: {pd.Series(ensembl_ids).nunique():,}")
 
-# --- Filter to only perturbations with target annotations ---
-print(f"  Total instances in metadata: {len(sh_meta_df):,}")
-sh_meta_df = sh_meta_df[sh_meta_df['ensembl_id'].notna()].copy()
-print(f"  Retained instances with target annotations: {len(sh_meta_df):,}")
-print(f"  Unique target genes: {sh_meta_df['ensembl_id'].nunique():,}")
+# --- Aggregate by ensembl_id ---
+print("\nAggregating by target gene (Ensembl ID)...")
+df_sb = pd.DataFrame(sh_bsq, columns=sb_cols); df_sb['ensembl_id'] = ensembl_ids
+df_sm = pd.DataFrame(sh_mus_ut, columns=sm_cols); df_sm['ensembl_id'] = ensembl_ids
+df_sb = df_sb.dropna(subset=['ensembl_id']); df_sm = df_sm.dropna(subset=['ensembl_id'])
+tgt_b = df_sb.groupby('ensembl_id')[sb_cols].mean().reset_index()
+tgt_m = df_sm.groupby('ensembl_id')[sm_cols].mean().reset_index()
+merged_sh = tgt_b.merge(tgt_m, on='ensembl_id')
+print(f"  Aggregated to {len(merged_sh):,} unique target genes")
 
-# --- Merge betas with target annotations ---
-print("\nMerging betas with target annotations...")
-sh_merged_df = pd.merge(sh_model_data_df, sh_meta_df, on='inst_id', how='inner')
-print(f"  Matched {len(sh_merged_df):,} beta samples to target genes")
-
-# --- Aggregate by target gene (same as expression script) ---
-print("\nAggregating betas by target gene (Ensembl ID)...")
-target_final_df = (
-    sh_merged_df.groupby('ensembl_id')[sh_feature_cols]
-    .mean()
-    .reset_index()
-)
-print(f"  Aggregated to {len(target_final_df):,} unique target genes")
-
-# --- Prepare final target prediction dataframe ---
-target_preds = target_final_df.rename(columns={'ensembl_id': 'targetId'})
+# --- Std-norm and concatenate ---
+arr_sh = np.hstack([std_norm(merged_sh[sb_cols].values), std_norm(merged_sh[sm_cols].values)])
+sf_cols = [f'f_{i}' for i in range(arr_sh.shape[1])]
+target_preds = pd.DataFrame(arr_sh, columns=sf_cols)
+target_preds['targetId'] = merged_sh['ensembl_id'].values
 
 print(f"\nFinal target representation:")
 print(f"  Unique targets: {len(target_preds)}")
-print(f"  Features (betas): {len(target_preds.columns) - 1}")
+print(f"  Features (bsq+mus): {len(sf_cols)}")
 print(f"  Shape: {target_preds.shape}")
 
-# Clear memory
-del sh_betas, sh_beta_df, sh_model_data_df, sh_meta_df, sh_merged_df, target_final_df
+del sh_betas, sh_mus, df_sb, df_sm, tgt_b, tgt_m, merged_sh, arr_sh
 
 # ============================================================================
 # Part 3: Run Evaluation
