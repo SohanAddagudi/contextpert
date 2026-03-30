@@ -2,7 +2,12 @@
 Bootstrap confidence intervals and all-pairs significance tests for sm_cohesion methods,
 including SPRINT as a baseline.
 """
-import os
+import os, sys
+
+if os.environ.get("PYTHONHASHSEED") != "123":
+    os.environ["PYTHONHASHSEED"] = "123"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -243,6 +248,31 @@ pred_nets = pd.DataFrame(arr, columns=[f"f_{i}" for i in range(arr.shape[1])])
 pred_nets["smiles"] = net_merged["smiles"].values
 pred_nets = filter_to_ref(pred_nets)
 
+# --- Predictor: Predicted Expression ---
+print("Building: pred_expression")
+PRED_DIR = Path(__file__).parent.parent / "predictors" / "outputs"
+_pred_expr_df = pd.read_csv(PRED_DIR / "cp_pred_expression.csv")
+feat_cols_expr = [c for c in _pred_expr_df.columns if c not in {"pert_id", "smiles"}]
+_pred_expr_df["smiles"] = _pred_expr_df["smiles"].apply(safe_canon)
+pred_pred_expr = _pred_expr_df.dropna(subset=["smiles"]).groupby("smiles")[feat_cols_expr].mean().reset_index()
+pred_pred_expr = filter_to_ref(pred_pred_expr)
+
+# --- Predictor: Predicted Metagenes ---
+print("Building: pred_metagenes")
+_pred_meta_df = pd.read_csv(PRED_DIR / "cp_pred_metagenes.csv")
+feat_cols_meta = [c for c in _pred_meta_df.columns if c not in {"pert_id", "smiles"}]
+_pred_meta_df["smiles"] = _pred_meta_df["smiles"].apply(safe_canon)
+pred_pred_meta = _pred_meta_df.dropna(subset=["smiles"]).groupby("smiles")[feat_cols_meta].mean().reset_index()
+pred_pred_meta = filter_to_ref(pred_pred_meta)
+
+# --- Predictor: Predicted AIDO Embeddings ---
+print("Building: pred_aido")
+_pred_emb_df = pd.read_csv(PRED_DIR / "cp_pred_aido_embeddings.csv")
+feat_cols_emb = [c for c in _pred_emb_df.columns if c not in {"pert_id", "smiles"}]
+_pred_emb_df["smiles"] = _pred_emb_df["smiles"].apply(safe_canon)
+pred_pred_emb = _pred_emb_df.dropna(subset=["smiles"]).groupby("smiles")[feat_cols_emb].mean().reset_index()
+pred_pred_emb = filter_to_ref(pred_pred_emb)
+
 # --- SPRINT ---
 print("Building: SPRINT")
 sprint_drugs   = pd.read_csv(SPRINT_DIR / "drugs.csv")
@@ -262,13 +292,16 @@ pred_sprint = filter_to_ref(pred_sprint)
 # ---------------------------------------------------------------------------
 
 methods = {
-    "Networks":     pred_nets,
-    "Expression":   pred_expr,
-    "Metagenes":    pred_meta,
-    "Embedding-3M": pred_emb3m,
-    "Morgan":       pred_morgan,
-    "SPRINT":       pred_sprint,
-    "Random":       pred_random,
+    "Networks":       pred_nets,
+    "Expression":     pred_expr,
+    "Metagenes":      pred_meta,
+    "Embedding-3M":   pred_emb3m,
+    "Morgan":         pred_morgan,
+    "SPRINT":         pred_sprint,
+    "Random":         pred_random,
+    "Pred-Expression": pred_pred_expr,
+    "Pred-Metagenes":  pred_pred_meta,
+    "Pred-AIDO":       pred_pred_emb,
 }
 
 print("\nRunning per-query evaluation...")
