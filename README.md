@@ -123,15 +123,9 @@ Evaluation is performed using **Hits@k** with
 
 #### Running Table 4 Experiments
 
-Each script generates a submission corresponding to a different perturbation representation:
-
+This script will run and perform bootstraps and signifiance testing for all representations. 
 ```
-python sm_cohesion_embedding_3m_submission.py
-python sm_cohesion_expression_submission.py
-python sm_cohesion_metagenes_submission.py
-python sm_cohesion_morgan_submission.py
-python sm_cohesion_networks_submission.py
-python sm_cohesion_random_submission.py
+python sm_cohesion_bootstrap.py
 ```
 
 ### Figure 2 (Disease Cohesion Clustermaps) 
@@ -165,15 +159,10 @@ Expression-based representations are derived from LINCS L1000 small-molecule and
 
 #### Running Table 5 Experiments
 
-Each script generates a submission for a specific perturbation representation:
+This script will run and perform bootstraps and signifiance testing for all representations:
 
 ```
-python drug_target_networks_submission.py
-python drug_target_targetnetworks_submission.py
-python drug_target_expression_submission.py
-python drug_target_metagenes_submission.py
-python drug_target_embedding_3m_submission.py
-python drug_target_random_submission.py
+python drug_target_bootstrap.py
 ```
 
 ### Figure 3
