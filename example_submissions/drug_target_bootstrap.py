@@ -2,7 +2,12 @@
 """
 DTR-Bench bootstrap CIs + significance testing 
 """
-import os
+import os, sys
+
+if os.environ.get("PYTHONHASHSEED") != "0":
+    os.environ["PYTHONHASHSEED"] = "0"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+    
 import sys
 import pandas as pd
 import numpy as np
