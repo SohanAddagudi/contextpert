@@ -19,7 +19,7 @@ seed_everything(10, workers=True)
 
 DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
 
-PATH_L1000 = DATA_DIR / 'trt_cp_smiles.csv'
+PATH_L1000 = DATA_DIR / 'trt_cp_smiles_qc.csv'
 PATH_CTLS = DATA_DIR / 'ctrls.csv'
 EMBEDDING_NPZ_FILE = DATA_DIR / 'gene_embeddings' / 'chemberta_embeddings.npz'
 PATH_SPLIT_MAP = DATA_DIR / 'gene_embeddings' / 'unseen_perturbation_splits' / 'trt_cp_split_map.csv'
@@ -302,7 +302,7 @@ contextualized_model = ContextualizedCorrelation(
     context_dim=C_train.shape[1],
     x_dim=X_train.shape[1],
     encoder_type='mlp',
-    num_archetypes=30,
+    num_archetypes=50,
 )
 
 train_indices, val_indices = train_test_split(
@@ -340,7 +340,7 @@ early_stop_callback = EarlyStopping(
 )
 
 trainer = Trainer(
-    max_epochs=25,
+    max_epochs=5,
     accelerator='auto',
     devices='auto',
     callbacks=[checkpoint_callback, early_stop_callback],
