@@ -9,13 +9,11 @@ import anndata as ad
 import warnings
 import os
 from pathlib import Path
-import glob
 from lightning import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint
 from contextualized.regression.lightning_modules import ContextualizedCorrelation
 from contextualized.data import CorrelationDataModule
 from contextualized.baselines.networks import CorrelationNetwork
-from contextualized.callbacks import PredictionWriter
 
 RANDOM_STATE = 10
 
@@ -30,18 +28,19 @@ torch.set_float32_matmul_precision('highest')
 def main():
     DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
     
-    pert_to_fit_on = ['trt_lig']
+    pert_to_fit_on = ['trt_sh']
     pert_name = pert_to_fit_on[0]
 
     EMBEDDINGS_TO_RUN = {
-        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
         'AIDOcell': DATA_DIR / 'gene_embeddings/AIDOcell_100M_Norman_Aligned_(D=640)',
+        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
         'AIDOdna': DATA_DIR / 'gene_embeddings/AIDOdna_(D=4352)',
         'AIDOprot': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
         'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
     }
 
     PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'{pert_name}.csv'
+    PATH_L1000 = DATA_DIR / 'trt_sh_genes_qc.csv'
     PATH_CTLS = DATA_DIR / 'ctrls.csv'
     PERT_INFO = DATA_DIR / 'gene_embeddings/perts_targets.csv'
 
@@ -49,29 +48,33 @@ def main():
     N_GENE_EMB_PCS = 256
     PERTURBATION_HOLDOUT_SIZE = 0.2
     SUBSAMPLE_FRACTION = None
-    
+    SPLIT_MAP_PATH = DATA_DIR / 'gene_embeddings/unseen_perturbation_splits/trt_sh_split_map.csv'
+
     all_run_results = []
 
     print("Finding the intersection of all perturbations across all embedding files...")
     pert_info_df = pd.read_csv(PERT_INFO)
     union_of_pert_ids = set()
     intersection_of_pert_ids = None
+    loaded_embs_cache = {}  # cache to avoid double-loading h5ad files
 
     for emb_name, emb_path in EMBEDDINGS_TO_RUN.items():
         try:
             embs = ad.read_h5ad(emb_path)
             embs.obs = embs.obs.set_index('symbol')
+            loaded_embs_cache[emb_name] = embs
             available_symbols = set(embs.obs.index)
-            
-            pert_ids_in_emb = set()
-            for _, row in pert_info_df.dropna(subset=['pert_iname']).iterrows():
-                targets = set(str(row['pert_iname']).split(';'))
-                if not targets.isdisjoint(available_symbols):
-                    pert_ids_in_emb.add(row['pert_id'])
-            
+
+            pert_info_filtered = pert_info_df.dropna(subset=['pert_iname']).copy()
+            pert_info_filtered['_targets'] = pert_info_filtered['pert_iname'].str.split(';').apply(
+                lambda genes: {g.strip() for g in genes}
+            )
+            mask = pert_info_filtered['_targets'].apply(lambda t: not t.isdisjoint(available_symbols))
+            pert_ids_in_emb = set(pert_info_filtered.loc[mask, 'pert_id'])
+
             print(f"  - Found {len(pert_ids_in_emb)} perturbations for '{emb_name}'")
             union_of_pert_ids.update(pert_ids_in_emb)
-            
+
             if intersection_of_pert_ids is None:
                 intersection_of_pert_ids = pert_ids_in_emb
             else:
@@ -87,56 +90,43 @@ def main():
     print(f"Total perturbations available in ALL files (intersection): {len(intersection_of_pert_ids)}")
 
 
-    def get_gene_embeddings(df, emb_h5ad_path, pert_info_path):
-        try:
-            embs = ad.read_h5ad(emb_h5ad_path)
-            embs.obs = embs.obs.set_index('symbol')
-            embs_symbols_set = set(embs.obs.index)
-        except FileNotFoundError:
-            print(f"Error: AnnData file not found at {emb_h5ad_path}")
-            return {}, [], None
-        
+    def get_gene_embeddings(df, embs, pert_info_path):
+        embs_symbols_set = set(embs.obs.index)
+
+        # Build a fast symbol -> dense vector dict once
+        X_dense = embs.X.toarray() if hasattr(embs.X, 'toarray') else np.asarray(embs.X)
+        symbol_to_vec = {sym: X_dense[i] for i, sym in enumerate(embs.obs.index)}
+
         try:
             mapping = pd.read_csv(pert_info_path)
-            merged_df = pd.merge(df, mapping, on='pert_id', how='left')
         except FileNotFoundError:
             print(f"Error: Perturbation info file not found at {pert_info_path}")
-            return {}, [], None
-        
-        pert_embeddings = {}
-        not_found_pert_ids = []
-        
-        for pert_id in merged_df['pert_id'].unique():
-            pert_data = merged_df[merged_df['pert_id'] == pert_id]
-            
-            pert_iname_strings = pert_data['pert_iname'].unique()
-            
-            embeddings_list = []
-            all_target_genes = set()
-            
-            for iname_str in pert_iname_strings:
-                if pd.isna(iname_str):
-                    continue
-                
-                for gene_name in iname_str.split(';'):
-                    cleaned_name = gene_name.strip()
-                    if cleaned_name:
-                        all_target_genes.add(cleaned_name)
-            
-            for gene_name in all_target_genes:
-                if gene_name in embs_symbols_set:
-                    embedding = embs[embs.obs.index.get_loc(gene_name)].X
-                    embeddings_list.append(embedding)
-                else:
-                    pass
+            return {}, []
 
-            if embeddings_list:
-                stacked_embs = np.vstack(embeddings_list)
-                pert_embeddings[pert_id] = np.mean(stacked_embs, axis=0)
-            else:
-                not_found_pert_ids.append(pert_id)
-                
-        return pert_embeddings, not_found_pert_ids, embs
+        unique_perts = df[['pert_id']].drop_duplicates()
+        # Explode pert_iname by ';' so each gene gets its own row
+        mapping_exp = mapping.dropna(subset=['pert_iname']).copy()
+        mapping_exp['gene'] = mapping_exp['pert_iname'].str.split(';')
+        mapping_exp = mapping_exp.explode('gene')
+        mapping_exp['gene'] = mapping_exp['gene'].str.strip()
+        mapping_exp = mapping_exp[mapping_exp['gene'] != '']
+
+        # Keep only perts in our dataset and genes we have embeddings for
+        mapping_exp = mapping_exp[mapping_exp['pert_id'].isin(unique_perts['pert_id'])]
+        mapping_exp = mapping_exp[mapping_exp['gene'].isin(embs_symbols_set)]
+
+        # Average embeddings per pert_id
+        if not mapping_exp.empty:
+            vecs = np.vstack(mapping_exp['gene'].map(symbol_to_vec).values)
+            mapping_exp = mapping_exp.copy()
+            mapping_exp['_vec_idx'] = np.arange(len(mapping_exp))
+            grouped = mapping_exp.groupby('pert_id')['_vec_idx'].apply(list)
+            pert_embeddings = {pid: vecs[idxs].mean(axis=0) for pid, idxs in grouped.items()}
+        else:
+            pert_embeddings = {}
+
+        not_found_pert_ids = [pid for pid in unique_perts['pert_id'] if pid not in pert_embeddings]
+        return pert_embeddings, not_found_pert_ids
 
     df = pd.read_csv(PATH_L1000, engine='pyarrow')
     df = df[df['pert_type'].isin(pert_to_fit_on)]
@@ -157,20 +147,29 @@ def main():
     
     unique_pert_ids = df['pert_id'].unique()
     print(f"Found {len(unique_pert_ids)} unique perturbations (pert_id) for the unified dataset")
-    pert_ids_train, pert_ids_test = train_test_split(
-        unique_pert_ids,
-        test_size=PERTURBATION_HOLDOUT_SIZE,
-        random_state=RANDOM_STATE
-    )
-    print(f"Perturbation split: {len(pert_ids_train)} train, {len(pert_ids_test)} test perturbations")
-    
-    df_train_base = df[df['pert_id'].isin(pert_ids_train)].copy()
-    df_test_base = df[df['pert_id'].isin(pert_ids_test)].copy()
-    print(f"Sample split: {len(df_train_base)} train, {len(df_test_base)} test samples")
 
+    if SPLIT_MAP_PATH is not None:
+        print(f"Using split map file: {SPLIT_MAP_PATH}")
+        split_map = pd.read_csv(SPLIT_MAP_PATH)[['inst_id', 'split']]
+        df = df.merge(split_map, on='inst_id', how='inner')
+        df_train_base = df[df['split'] == 'train'].drop(columns='split').copy()
+        df_test_base  = df[df['split'] == 'test'].drop(columns='split').copy()
+        df = df.drop(columns='split')
+    else:
+        pert_ids_train, pert_ids_test = train_test_split(
+            unique_pert_ids,
+            test_size=PERTURBATION_HOLDOUT_SIZE,
+            random_state=RANDOM_STATE
+        )
+        print(f"Perturbation split: {len(pert_ids_train)} train, {len(pert_ids_test)} test perturbations")
+        df_train_base = df[df['pert_id'].isin(pert_ids_train)].copy()
+        df_test_base  = df[df['pert_id'].isin(pert_ids_test)].copy()
+
+    print(f"Sample split: {len(df_train_base)} train, {len(df_test_base)} test samples")
+    n_total_samples = len(df)  # save before df is freed inside the loop
 
     for emb_name, EMB_H5AD in EMBEDDINGS_TO_RUN.items():
-        
+
         print(f"\n{'='*25} RUNNING FOR EMBEDDING: {emb_name} {'='*25}")
         
         RESULTS_DIR = f'{pert_name}_{emb_name}'
@@ -196,22 +195,23 @@ def main():
                 df_split[col] = df_split[col].replace(-666, mean_val)
 
         print("Loading gene embeddings...")
-        all_pert_embeddings, not_found_list, embs = get_gene_embeddings(df, EMB_H5AD, PERT_INFO)
+        embs = loaded_embs_cache[emb_name]
+        all_pert_embeddings, not_found_list = get_gene_embeddings(
+            pd.concat([df_train, df_test], ignore_index=True), embs, PERT_INFO
+        )
         if not_found_list:
             print(f"Warning: {len(not_found_list)} perturbations in the unified set do not have an embedding in '{emb_name}'. They will be represented by zero vectors.")
 
-        def process_data_split(df_split, split_name, embs):
+        def process_data_split(df_split, split_name):
             numeric_cols = df_split.select_dtypes(include=[np.number]).columns
             drop_cols = ['pert_dose', 'pert_dose_unit', 'pert_time', 'distil_cc_q75', 'pct_self_rank_q25']
             feature_cols = [c for c in numeric_cols if c not in drop_cols]
             X_raw = df_split[feature_cols].values
-            
+
             print(f"Generating gene embeddings for {split_name} set...")
             emb_shape = next(iter(all_pert_embeddings.values())).shape[0] if all_pert_embeddings else 0
-            gene_embs = np.array([
-                all_pert_embeddings.get(pid, np.zeros(emb_shape)).flatten()
-                for pid in df_split['pert_id']
-            ])
+            rows = [all_pert_embeddings.get(pid, np.zeros(emb_shape)).flatten() for pid in df_split['pert_id']]
+            gene_embs = np.array(rows) if rows else np.zeros((0, emb_shape))
             print(f"Generated gene embeddings for {split_name}: shape {gene_embs.shape}")
             
             pert_time = df_split['pert_time'].to_numpy().reshape(-1, 1)
@@ -220,18 +220,28 @@ def main():
             ignore_dose = df_split['ignore_flag_pert_dose'].to_numpy().reshape(-1, 1)
             return X_raw, gene_embs, pert_time, pert_dose, ignore_time, ignore_dose
 
-        X_raw_train, gene_embs_train, pert_time_train, pert_dose_train, ignore_time_train, ignore_dose_train = process_data_split(df_train, 'train', embs)
-        X_raw_test, gene_embs_test, pert_time_test, pert_dose_test, ignore_time_test, ignore_dose_test = process_data_split(df_test, 'test', embs)
-        
+        X_raw_train, gene_embs_train, pert_time_train, pert_dose_train, ignore_time_train, ignore_dose_train = process_data_split(df_train, 'train')
+        X_raw_test, gene_embs_test, pert_time_test, pert_dose_test, ignore_time_test, ignore_dose_test = process_data_split(df_test, 'test')
+
+        # Drop heavy feature columns — keep only metadata needed later
+        _keep_cols = ['cell_id', 'inst_id', 'pert_time', 'pert_dose']
+        df_train = df_train[[c for c in _keep_cols if c in df_train.columns]].copy()
+        df_test  = df_test[[c for c in _keep_cols if c in df_test.columns]].copy()
+        # Free the full base DataFrames (~5.8 GB total)
+        try:
+            del df_train_base, df_test_base, df
+        except NameError:
+            pass
+
         if gene_embs_train.shape[1] == 0:
             print(f"Warning: No gene embeddings were loaded for {emb_name}. Using zero vectors.")
-            pass
 
         print("Applying scaling...")
         scaler_genes = StandardScaler()
         X_train_scaled = scaler_genes.fit_transform(X_raw_train)
         X_test_scaled = scaler_genes.transform(X_raw_test)
-        
+        del X_raw_train, X_raw_test  # ~2.9 GB freed
+
         scaler_embs = StandardScaler()
         if gene_embs_train.shape[1] > 0:
             gene_embs_train_scaled = scaler_embs.fit_transform(gene_embs_train.astype(float))
@@ -239,6 +249,7 @@ def main():
         else:
             gene_embs_train_scaled = gene_embs_train
             gene_embs_test_scaled = gene_embs_test
+        del gene_embs_train, gene_embs_test  # ~1.5 GB freed
 
         if emb_name != 'PCA' and gene_embs_train_scaled.shape[1] > N_GENE_EMB_PCS:
             print(f"Applying PCA to gene embeddings for '{emb_name}', reducing from {gene_embs_train_scaled.shape[1]} to {N_GENE_EMB_PCS} components...")
@@ -273,48 +284,41 @@ def main():
 
         def build_context_matrix(df_split, X_scaled_split, gene_embs_scaled, pert_time, pert_dose, ignore_time, ignore_dose, scaler_context=None, is_train=False):
             cell_ids = df_split['cell_id'].to_numpy()
-            continuous_context_parts, X_final_parts, C_final_parts, cell_ids_final_parts = [], [], [], []
+            valid_cell_ids = np.sort([c for c in df_split['cell_id'].unique() if c in cell2vec])
+
+            if not len(valid_cell_ids):
+                if is_train:
+                    return None, None, None, None
+                return np.array([]), np.array([]), np.array([]), scaler_context
+
+            # Build continuous context block in one pass
+            masks = {c: (cell_ids == c) for c in valid_cell_ids}
+            continuous_parts = [
+                np.hstack([np.tile(cell2vec[c], (masks[c].sum(), 1)), pert_time[masks[c]], pert_dose[masks[c]]])
+                for c in valid_cell_ids
+            ]
+            continuous_all = np.vstack(continuous_parts)
 
             if is_train:
-                for cell_id in np.sort(df_split['cell_id'].unique()):
-                    if cell_id not in cell2vec: continue
-                    mask = (cell_ids == cell_id)
-                    if not mask.any(): continue
-                    continuous_context_parts.append(np.hstack([
-                        np.tile(cell2vec[cell_id], (mask.sum(), 1)),
-                        pert_time[mask],
-                        pert_dose[mask],
-                    ]))
-                
-                if not continuous_context_parts:
-                    return None, None, None, None
-                    
-                scaler_context = StandardScaler().fit(np.vstack(continuous_context_parts))
+                scaler_context = StandardScaler().fit(continuous_all)
                 print(f"Fitted context scaler on {scaler_context.mean_.shape[0]} continuous context features")
 
-            for cell_id in np.sort(df_split['cell_id'].unique()):
-                if cell_id not in cell2vec:
-                    print(f"Warning: Cell {cell_id} not found in control embeddings, skipping...")
-                    continue
-                mask = (cell_ids == cell_id)
-                if not mask.any(): continue
-                
-                C_continuous = np.hstack([
-                    np.tile(cell2vec[cell_id], (mask.sum(), 1)),
-                    pert_time[mask],
-                    pert_dose[mask],
-                ])
-                C_continuous_scaled = scaler_context.transform(C_continuous)
-                
+            # Build final matrices, reusing already-computed continuous_parts
+            X_final_parts, C_final_parts, cell_ids_final_parts = [], [], []
+            offset = 0
+            for c, cont in zip(valid_cell_ids, continuous_parts):
+                n = cont.shape[0]
+                mask = masks[c]
                 C_final_parts.append(np.hstack([
-                    C_continuous_scaled,
+                    scaler_context.transform(cont),
                     gene_embs_scaled[mask],
                     ignore_time[mask],
                     ignore_dose[mask],
                 ]))
                 X_final_parts.append(X_scaled_split[mask])
                 cell_ids_final_parts.append(cell_ids[mask])
-            
+                offset += n
+
             if not C_final_parts:
                 return np.array([]), np.array([]), np.array([]), scaler_context
 
@@ -329,6 +333,10 @@ def main():
             
         X_test, C_test, cell_ids_test, _ = build_context_matrix(df_test, X_test_scaled, gene_embs_test_scaled, pert_time_test, pert_dose_test, ignore_time_test, ignore_dose_test, scaler_context=scaler_context)
 
+        # Free scaled arrays no longer needed before training
+        del X_train_scaled, X_test_scaled
+        del gene_embs_train_scaled, gene_embs_test_scaled
+
         if X_train.shape[0] == 0 or X_test.shape[0] == 0:
             print(f"ERROR: Train ({X_train.shape[0]}) or Test ({X_test.shape[0]}) set is empty after processing. Skipping {emb_name} run.")
             continue
@@ -339,16 +347,17 @@ def main():
         print("Applying PCA...")
         pca_data = PCA(n_components=N_DATA_PCS, random_state=RANDOM_STATE)
         X_train_pca = pca_data.fit_transform(X_train)
+        del X_train  # free ~2.3 GB (979-col) before next allocations
         X_test_pca = pca_data.transform(X_test)
-        
+        del X_test
+
         pca_scaler = StandardScaler()
         X_train_norm = pca_scaler.fit_transform(X_train_pca)
+        del X_train_pca
         X_test_norm = pca_scaler.transform(X_test_pca)
+        del X_test_pca
         print(f'Normalized PCA features: train {X_train_norm.shape}    test {X_test_norm.shape}')
-        
-        train_group_ids = cell_ids_train
-        test_group_ids = cell_ids_test
-        
+
         X_train, X_test = X_train_norm, X_test_norm
 
         pop_model = CorrelationNetwork()
@@ -370,7 +379,7 @@ def main():
             C_train=C_train[train_indices], X_train=X_train[train_indices],
             C_val=C_train[val_indices], X_val=X_train[val_indices],
             C_test=C_test, X_test=X_test,
-            C_predict=np.concatenate((C_train, C_test)), X_predict=np.concatenate((X_train, X_test)),
+            C_predict=C_test, X_predict=X_test,  # inference is done manually; avoid extra concat copy
             batch_size=32,
         )
 
@@ -378,97 +387,88 @@ def main():
 
         # CHANGE 2: Added deterministic=True to Trainer
         trainer = Trainer(
-            default_root_dir=RESULTS_DIR, max_epochs=10, accelerator='auto', devices='auto',
+            default_root_dir=RESULTS_DIR, max_epochs=5, accelerator='auto', devices='auto',
             callbacks=[checkpoint_callback],
             deterministic=True
         )
         trainer.fit(contextualized_model, datamodule=datamodule)
 
         print(f"Best model path: {checkpoint_callback.best_model_path}")
-        print("Testing model on full training data...")
-        trainer.test(contextualized_model, datamodule.train_dataloader())
-        print("Testing model on test data...")
-        trainer.test(contextualized_model, datamodule.test_dataloader())
 
-        output_dir = Path(checkpoint_callback.best_model_path).parent / 'predictions'
-        writer_callback = PredictionWriter(output_dir=output_dir, write_interval='batch')
+        # Load best checkpoint weights into model, then run inference directly.
+        # Outputs are streamed to memmap files to avoid OOM (~10 GB for full dataset).
+        print("Loading best checkpoint and running direct inference...")
+        ckpt = torch.load(checkpoint_callback.best_model_path, map_location='cpu', weights_only=False)
+        contextualized_model.load_state_dict(ckpt['state_dict'])
+        contextualized_model.cpu()  # run inference on CPU to avoid competing with MPS for RAM
+        contextualized_model.eval()
+        device = torch.device('cpu')
 
-        # CHANGE 3: Added deterministic=True to prediction Trainer
-        pred_trainer = Trainer(
-            default_root_dir=RESULTS_DIR, accelerator='auto', devices='auto', callbacks=[writer_callback],
-            deterministic=True
-        )
-        print("Making predictions on full dataset (train + test)...")
-        pred_trainer.predict(contextualized_model, datamodule=datamodule, ckpt_path=checkpoint_callback.best_model_path)
-        
-        C_train_32 = C_train.astype(np.float32)
-        C_test_32 = C_test.astype(np.float32)
-        
-        all_correlations, all_betas, all_mus = {}, {}, {}
-        
-        pred_files = glob.glob(str(output_dir / 'predictions_*.pt'))
-        if not pred_files:
-            print(f"ERROR: No prediction files found in {output_dir}. Skipping post-processing for {emb_name}.")
-            continue
-            
-        for file in pred_files:
-            preds = torch.load(file)
-            for context, correlation, beta, mu in zip(preds['contexts'], preds['correlations'], preds['betas'], preds['mus']):
-                context_tuple = tuple(context.to(torch.float32).tolist())
-                all_correlations[context_tuple] = correlation.cpu().numpy()
-                all_betas[context_tuple] = beta.cpu().numpy()
-                all_mus[context_tuple] = mu.cpu().numpy()
-        
-        def get_preds(contexts, pred_dict, default_val):
-            return np.array([pred_dict.get(tuple(c), default_val) for c in [tuple(row) for row in contexts]])
+        n_features = X_train.shape[1]
+        n_train, n_test = len(C_train), len(C_test)
+        n_full = n_train + n_test
+        out_shape = (n_full, n_features, n_features)
 
-        corr_shape = (X_train.shape[1], X_train.shape[1])
-        beta_shape = (X_train.shape[1], X_train.shape[1])
-        mu_shape = (X_train.shape[1], X_train.shape[1])
-        default_corr = np.full(corr_shape, np.nan)
-        default_beta = np.full(beta_shape, np.nan)
-        default_mu = np.full(mu_shape, np.nan)
+        corr_path  = os.path.join(RESULTS_DIR, 'full_dataset_correlations.npy')
+        betas_path = os.path.join(RESULTS_DIR, 'full_dataset_betas.npy')
+        mus_path   = os.path.join(RESULTS_DIR, 'full_dataset_mus.npy')
 
-        correlations_train = get_preds(C_train_32, all_correlations, default_corr)
-        correlations_test = get_preds(C_test_32, all_correlations, default_corr)
-        betas_train = get_preds(C_train_32, all_betas, default_beta)
-        betas_test = get_preds(C_test_32, all_betas, default_beta)
-        mus_train = get_preds(C_train_32, all_mus, default_mu)
-        mus_test = get_preds(C_test_32, all_mus, default_mu)
+        # Pre-allocate proper .npy files on disk (loadable with np.load) — written in batches
+        corrs_mm = np.lib.format.open_memmap(corr_path,  mode='w+', dtype='float32', shape=out_shape)
+        betas_mm = np.lib.format.open_memmap(betas_path, mode='w+', dtype='float32', shape=out_shape)
+        mus_mm   = np.lib.format.open_memmap(mus_path,   mode='w+', dtype='float32', shape=out_shape)
 
-        correlations_full = np.concatenate([correlations_train, correlations_test], axis=0)
-        betas_full = np.concatenate([betas_train, betas_test], axis=0)
-        mus_full = np.concatenate([mus_train, mus_test], axis=0)
+        def run_inference_to_mm(C_np, offset, batch_size=256):
+            C_tensor = torch.tensor(C_np.astype(np.float32))
+            with torch.no_grad():
+                for start in range(0, len(C_tensor), batch_size):
+                    end = min(start + batch_size, len(C_tensor))
+                    out = contextualized_model.predict_step({"contexts": C_tensor[start:end].to(device)}, 0)
+                    betas_mm[offset + start:offset + end] = out["betas"].cpu().numpy()
+                    mus_mm[offset + start:offset + end]   = out["mus"].cpu().numpy()
+                    corrs_mm[offset + start:offset + end] = out["correlations"].cpu().numpy()
+                    if start % (batch_size * 100) == 0:
+                        print(f"  {offset + end}/{n_full} samples done", flush=True)
+
+        print("Running inference on train set...")
+        run_inference_to_mm(C_train, offset=0)
+        print("Running inference on test set...")
+        run_inference_to_mm(C_test, offset=n_train)
+        betas_mm.flush(); mus_mm.flush(); corrs_mm.flush()
+        print(f"Saved betas/mus/correlations to {RESULTS_DIR}  shape={out_shape}")
+
+        # Views into train/test slices (no copy — reads from disk as needed)
+        betas_train       = betas_mm[:n_train]
+        mus_train         = mus_mm[:n_train]
+        correlations_train = corrs_mm[:n_train]
+        betas_test        = betas_mm[n_train:]
+        mus_test          = mus_mm[n_train:]
+        correlations_test  = corrs_mm[n_train:]
 
         X_full = np.concatenate([X_train, X_test], axis=0)
         C_full = np.concatenate([C_train, C_test], axis=0)
-        train_indices_full = np.arange(len(X_train))
-        test_indices_full = np.arange(len(X_train), len(X_train) + len(X_test))
-        
+
         print(f"Full dataset predictions compiled:")
-        print(f"  Correlations shape: {correlations_full.shape}")
-        print(f"  Betas shape: {betas_full.shape}")
-        print(f"  Mus shape: {mus_full.shape}")
+        print(f"  Betas/Mus/Correlations shape: {out_shape}")
         print(f"  Features shape: {X_full.shape}")
         print(f"  Context shape: {C_full.shape}")
 
-        def measure_mses(betas, mus, X):
-            mses = np.zeros(len(X))
-            for i in range(len(X)):
-                if np.isnan(betas[i]).any():
-                    mses[i] = np.nan
-                    continue
-                sample_mse = 0
-                for j in range(X.shape[-1]):
-                    for k in range(X.shape[-1]):
-                        residual = X[i, j] - betas[i, j, k] * X[i, k] - mus[i, j, k]
-                        sample_mse += residual**2
-                mses[i] = sample_mse / (X.shape[-1] ** 2)
+        def measure_mses(betas, mus, X, batch_size=1000):
+            mses = np.empty(len(X))
+            for start in range(0, len(X), batch_size):
+                end = min(start + batch_size, len(X))
+                b = np.array(betas[start:end])
+                m = np.array(mus[start:end])
+                x = X[start:end]
+                residuals = x[:, :, np.newaxis] - b * x[:, np.newaxis, :] - m
+                chunk = np.sum(residuals ** 2, axis=(1, 2)) / (x.shape[-1] ** 2)
+                chunk[np.isnan(b).any(axis=(1, 2))] = np.nan
+                mses[start:end] = chunk
             return mses
 
         mse_train = measure_mses(betas_train, mus_train, X_train)
-        mse_test = measure_mses(betas_test, mus_test, X_test)
-        mse_full = measure_mses(betas_full, mus_full, X_full)
+        mse_test  = measure_mses(betas_test,  mus_test,  X_test)
+        mse_full  = measure_mses(betas_mm,    mus_mm,    X_full)
         
         context_train_mse = np.nanmean(mse_train)
         context_test_mse = np.nanmean(mse_test)
@@ -476,7 +476,11 @@ def main():
         print(f"Contextualized Train MSE: {context_train_mse:.4f}")
         print(f"Contextualized Test MSE: {context_test_mse:.4f}")
         print(f"Contextualized Full dataset MSE: {np.nanmean(mse_full):.4f}")
-        
+
+        # Free large arrays before building df_full to avoid OOM
+        del C_full, X_full
+        del C_train, C_test
+
         train_mask = df_train['cell_id'].isin(cell2vec.keys())
         test_mask = df_test['cell_id'].isin(cell2vec.keys())
         df_full = pd.concat([df_train[train_mask], df_test[test_mask]]).reset_index(drop=True)
@@ -494,7 +498,10 @@ def main():
         else:
             print(f"Warning: Length mismatch between results ({len(results_df)}) and filtered df ({len(df_full)}). Skipping some column merges.")
 
-        
+        csv_path = os.path.join(RESULTS_DIR, 'full_dataset_predictions.csv')
+        results_df.to_csv(csv_path, index=False)
+        print(f"Saved predictions CSV to {csv_path}")
+
         print(f"\nPer-cell performance breakdown:")
         print("Cell ID                Train MSE    Test MSE     Train N  Test N")
         print("─" * 60)
@@ -503,13 +510,6 @@ def main():
             tr_mse = np.nanmean(mse_train[tr_mask]) if tr_mask.any() else np.nan
             te_mse = np.nanmean(mse_test[te_mask]) if te_mask.any() else np.nan
             print(f'{cell_id:<15}    {tr_mse:8.4f}    {te_mse:8.4f}     {tr_mask.sum():6d}     {te_mask.sum():6d}')
-
-        csv_path = os.path.join(RESULTS_DIR, 'full_dataset_predictions.csv')
-        corr_path = os.path.join(RESULTS_DIR, 'full_dataset_correlations.npy')
-        betas_path = os.path.join(RESULTS_DIR, 'full_dataset_betas.npy')
-        mus_path = os.path.join(RESULTS_DIR, 'full_dataset_mus.npy')
-
-        results_df.to_csv(csv_path, index=False)
         
         current_run_summary = {
             'Embedding': emb_name,
@@ -537,6 +537,7 @@ def main():
         print(summary_df.to_string())
         
         BASE_SAVE_DIR = 'final_runs'
+        os.makedirs(BASE_SAVE_DIR, exist_ok=True)
         summary_csv_path = os.path.join(BASE_SAVE_DIR, 'all_runs_summary.csv')
         summary_df.to_csv(summary_csv_path, index=False)
         print(f"\nSummary saved to: {summary_csv_path}")
@@ -551,7 +552,7 @@ def main():
     print(f"Perturbations Common to All Embeddings (Intersection): {len(intersection_of_pert_ids)}")
     print(f"Perturbations Filtered Out (Not in all embeddings):  {len(filtered_out_perts)}")
     print(f"Perturbations the model was evaluated on (Post-QC):  {len(unique_pert_ids)}")
-    print(f"Total Samples in Final Dataset:                      {len(df)}")
+    print(f"Total Samples in Final Dataset:                      {n_total_samples}")
 
     print("="*87)
 
