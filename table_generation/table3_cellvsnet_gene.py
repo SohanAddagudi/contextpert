@@ -30,13 +30,12 @@ def main():
     
     pert_to_fit_on = ['trt_sh']
     pert_name = pert_to_fit_on[0]
-
     EMBEDDINGS_TO_RUN = {
         'AIDOcell': DATA_DIR / 'gene_embeddings/AIDOcell_100M_Norman_Aligned_(D=640)',
-        # 'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
         # 'AIDOdna': DATA_DIR / 'gene_embeddings/AIDOdna_(D=4352)',
         # 'AIDOprot': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
         # 'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
+        # 'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
     }
 
     PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'{pert_name}.csv'
@@ -90,6 +89,11 @@ def main():
     print(f"\nTotal unique perturbations found across all files (union): {len(union_of_pert_ids)}")
     print(f"Total perturbations available in ALL files (intersection): {len(intersection_of_pert_ids)}")
 
+    valid_embeddings = {
+        emb_name: EMBEDDINGS_TO_RUN[emb_name]
+        for emb_name in EMBEDDINGS_TO_RUN
+        if emb_name in loaded_embs_cache
+    }
 
     def get_gene_embeddings(df, embs, pert_info_path):
         embs_symbols_set = set(embs.obs.index)
@@ -169,7 +173,7 @@ def main():
     print(f"Sample split: {len(df_train_base)} train, {len(df_test_base)} test samples")
     n_total_samples = len(df)  # save before df is freed inside the loop
 
-    for emb_name, EMB_H5AD in EMBEDDINGS_TO_RUN.items():
+    for emb_name, EMB_H5AD in valid_embeddings.items():
 
         print(f"\n{'='*25} RUNNING FOR EMBEDDING: {emb_name} {'='*25}")
         
@@ -228,11 +232,6 @@ def main():
         _keep_cols = ['cell_id', 'inst_id', 'pert_time', 'pert_dose']
         df_train = df_train[[c for c in _keep_cols if c in df_train.columns]].copy()
         df_test  = df_test[[c for c in _keep_cols if c in df_test.columns]].copy()
-        # Free the full base DataFrames (~5.8 GB total)
-        try:
-            del df_train_base, df_test_base, df
-        except NameError:
-            pass
 
         if gene_embs_train.shape[1] == 0:
             print(f"Warning: No gene embeddings were loaded for {emb_name}. Using zero vectors.")
@@ -386,7 +385,6 @@ def main():
 
         checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, filename='best_model')
 
-        # CHANGE 2: Added deterministic=True to Trainer
         trainer = Trainer(
             default_root_dir=RESULTS_DIR, max_epochs=5, accelerator='auto', devices='auto',
             callbacks=[checkpoint_callback],
