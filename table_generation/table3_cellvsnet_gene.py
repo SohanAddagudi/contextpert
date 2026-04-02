@@ -32,10 +32,10 @@ def main():
     pert_name = pert_to_fit_on[0]
     EMBEDDINGS_TO_RUN = {
         'AIDOcell': DATA_DIR / 'gene_embeddings/AIDOcell_100M_Norman_Aligned_(D=640)',
-        # 'AIDOdna': DATA_DIR / 'gene_embeddings/AIDOdna_(D=4352)',
-        # 'AIDOprot': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
-        # 'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
-        # 'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
+        'AIDOdna': DATA_DIR / 'gene_embeddings/AIDOdna_(D=4352)',
+        'AIDOprot': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
+        'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
+        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
     }
 
     PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'{pert_name}.csv'
