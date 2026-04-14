@@ -65,15 +65,23 @@ head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 
 Run `table1_controlnetworks.py` to reproduce the **Table 1** results: MSE of inferred networks on a **sample-held-out split** using **control perturbation measurements** (`ctl_vehicle`, `ctl_vector`, `ctl_untrt`).
 
-- Trains one of three model modes:
-  - `population`: single global network
-  - `cell_specific`: one network per cell line
-  - `contextualized`
-- Reports MSE for:
-  - Train (Full)
-  - Test (Full)
-  - Test (`n_c > 3`)
-  - Test (`n_c <= 3`)
+The mode is passed as a **positional argument**. Run each mode separately — each saves its results to `table_generation/table1_results2/<mode>.json`.
+
+```bash
+cd table_generation
+python table1_controlnetworks.py population            # single global network
+python table1_controlnetworks.py cell_specific         # one network per cell line
+python table1_controlnetworks.py contextualized        # contextualized network
+python table1_controlnetworks.py contextualized_full   # contextualized + dose & time
+```
+
+After all four modes have been run, aggregate them into the final table:
+
+```bash
+python table1_controlnetworks.py aggregate
+```
+
+Reported MSEs: Train (Full), Test (Full), Test (`n_c > 3`), Test (`n_c <= 3`).
 
 ### Table 2 (MSE of inferred networks on a sample-held-out split for perturbed expression measurements)
 
@@ -81,13 +89,25 @@ This experiment evaluates **network inference performance on perturbed expressio
 
 #### Running Table 2 Experiments
 
-Set the desired model configuration directly in the script:
+The mode is passed via the `--mode` flag. Run each of the five modes separately — each saves its results to `table_generation/results/table2_<mode>.json` (or the directory supplied via `--results-dir`).
 
+```bash
+cd table_generation
+python table2_post_pert_networks.py --mode population
+python table2_post_pert_networks.py --mode cell_specific
+python table2_post_pert_networks.py --mode contextualized_onehot
+python table2_post_pert_networks.py --mode contextualized_expression
+python table2_post_pert_networks.py --mode contextualized_expression_full
 ```
-MODEL_MODE = 'population'        # or 'cell_specific', 'contextualized'
-CELL_CONTEXT_MODE = 'expression' # 'expression', or 'onehot' (contextualized only)
-USE_FULL_CONTEXT_FEATURES = True # include dose and time (contextualized only)
-```
+
+Mode meanings:
+
+- `population` – single global correlation network
+- `cell_specific` – one correlation network per (cell, pert) group
+- `contextualized_onehot` – contextualized model with one-hot cell context + PCA pert context
+- `contextualized_expression` – contextualized model with PCA-of-control-expression cell context
+- `contextualized_expression_full` – `contextualized_expression` plus dose, time, and pert-dose-unit features
+
 
 ### Table 3 (MSE of inferred networks on a context-held-out split for various perturbation types using different context representations)
 
