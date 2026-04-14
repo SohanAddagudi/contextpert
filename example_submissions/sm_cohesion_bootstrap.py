@@ -215,14 +215,14 @@ for c in emb_cols:
     pred_emb3m[c] = emb_by_brd[c].values
 pred_emb3m = filter_to_ref(pred_emb3m)
 
-# --- Networks (ChemBERTa) ---
+# --- Networks (ChemBERTa)  —  reduction: corr²  ⊕  μ ---
 print("Building: networks")
-betas = np.load(MODEL_DIR / "full_dataset_betas.npy")
+corrs = np.load(MODEL_DIR / "full_dataset_correlations.npy")
 mus   = np.load(MODEL_DIR / "full_dataset_mus.npy")
 meta_csv = pd.read_csv(MODEL_DIR / "full_dataset_predictions.csv")
 n_x = mus.shape[-1]
 idx_upper = np.triu_indices(n_x, k=1)
-bsq_raw = betas[:, idx_upper[0], idx_upper[1]] ** 2
+bsq_raw = corrs[:, idx_upper[0], idx_upper[1]] ** 2   
 mus_raw  = mus[:,   idx_upper[0], idx_upper[1]]
 smiles_col = meta_csv["canonical_smiles"].apply(
     lambda s: canonicalize_smiles(s) if pd.notna(s) and s not in ("-666", "restricted") else None
