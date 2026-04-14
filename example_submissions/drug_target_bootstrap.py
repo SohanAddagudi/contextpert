@@ -202,18 +202,22 @@ agg_e = {c: 'mean' for c in emb_cols}; agg_e['canonical_smiles'] = 'first'
 drug_preds_emb = (trt_cp_e.groupby('pert_id')[emb_cols + ['canonical_smiles']]
                   .agg(agg_e).reset_index()[['canonical_smiles'] + emb_cols]
                   .rename(columns={'canonical_smiles': 'smiles'}))
-trt_sh_e = pd.read_csv(os.path.join(DATA_DIR, 'trt_sh_genes_qc_aido_cell_3m_embeddings.csv'), low_memory=False)
-trt_sh_e = trt_sh_e[trt_sh_e['ensembl_id'].notna()].copy()
+# SH embeddings file lacks ensembl_id; merge via inst_id with trt_sh_genes_qc.csv
+trt_sh_e = pd.read_csv(os.path.join(DATA_DIR, 'trt_sh_qc_aido_cell_3m_embeddings.csv'), low_memory=False)
+_sh_ann = pd.read_csv(os.path.join(DATA_DIR, 'trt_sh_genes_qc.csv'),
+                      usecols=['inst_id', 'ensembl_id'], low_memory=False)
+_sh_ann = _sh_ann[_sh_ann['ensembl_id'].notna()]
+trt_sh_e = trt_sh_e.merge(_sh_ann, on='inst_id', how='inner')
 target_preds_emb = trt_sh_e.groupby('ensembl_id')[emb_cols].mean().reset_index().rename(columns={'ensembl_id': 'targetId'})
 del trt_cp_e, trt_sh_e
 
 # ── NETWORKS ──────────────────────────────────────────────────────────────────
-print("\n[5/6] Networks")
-cp_betas = np.load(os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_betas.npy'))
+print("\n[5/6] Networks  —  reduction: corr² ⊕ μ")
+cp_corrs = np.load(os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_correlations.npy'))
 cp_mus   = np.load(os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_mus.npy'))
 cp_meta  = pd.read_csv(os.path.join(DATA_DIR, 'cellvs_molecule_networks/chemberta_model_outputs/full_dataset_predictions.csv'))
 idx_u = np.triu_indices(cp_mus.shape[-1], k=1)
-cp_bsq = cp_betas[:, idx_u[0], idx_u[1]] ** 2
+cp_bsq = cp_corrs[:, idx_u[0], idx_u[1]] ** 2  # corr² (was β²)
 cp_mus_ut = cp_mus[:, idx_u[0], idx_u[1]]
 nf = cp_bsq.shape[1]
 b_c = [f'b_{i}' for i in range(nf)]; m_c = [f'm_{i}' for i in range(nf)]
@@ -227,13 +231,13 @@ merged_cp = drug_b.merge(drug_m, on='smiles')
 arr_cp = np.hstack([std_norm(merged_cp[b_c].values), std_norm(merged_cp[m_c].values)])
 fc = [f'f_{i}' for i in range(arr_cp.shape[1])]
 drug_preds_net = pd.DataFrame(arr_cp, columns=fc); drug_preds_net['smiles'] = merged_cp['smiles'].values
-del cp_betas, cp_mus, df_b, df_m, drug_b, drug_m, merged_cp, arr_cp
+del cp_corrs, cp_mus, df_b, df_m, drug_b, drug_m, merged_cp, arr_cp
 
-sh_betas = np.load(os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_betas.npy'))
+sh_corrs = np.load(os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_correlations.npy'))
 sh_mus   = np.load(os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_mus.npy'))
 sh_meta  = pd.read_csv(os.path.join(DATA_DIR, 'drug_target_networks/trt_sh_aidocell_drug_target_networks/full_dataset_predictions.csv'))
 sh_idx_u = np.triu_indices(sh_mus.shape[-1], k=1)
-sh_bsq = sh_betas[:, sh_idx_u[0], sh_idx_u[1]] ** 2
+sh_bsq = sh_corrs[:, sh_idx_u[0], sh_idx_u[1]] ** 2  # corr² (was β²)
 sh_mus_ut = sh_mus[:, sh_idx_u[0], sh_idx_u[1]]
 sf = sh_bsq.shape[1]
 sb_c = [f'b_{i}' for i in range(sf)]; sm_c = [f'm_{i}' for i in range(sf)]
@@ -249,7 +253,7 @@ merged_sh = tgt_b.merge(tgt_m, on='ensembl_id')
 arr_sh = np.hstack([std_norm(merged_sh[sb_c].values), std_norm(merged_sh[sm_c].values)])
 sfc = [f'f_{i}' for i in range(arr_sh.shape[1])]
 target_preds_net = pd.DataFrame(arr_sh, columns=sfc); target_preds_net['targetId'] = merged_sh['ensembl_id'].values
-del sh_betas, sh_mus, df_sb, df_sm, tgt_b, tgt_m, merged_sh, arr_sh
+del sh_corrs, sh_mus, df_sb, df_sm, tgt_b, tgt_m, merged_sh, arr_sh
 
 # ── SPRINT ────────────────────────────────────────────────────────────────────
 print("\n[6/6] Sprint")
