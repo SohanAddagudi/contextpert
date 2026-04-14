@@ -28,7 +28,7 @@ torch.set_float32_matmul_precision('highest')
 def main():
     DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
     
-    pert_to_fit_on = ['trt_sh']
+    pert_to_fit_on = ['trt_lig']
     pert_name = pert_to_fit_on[0]
     EMBEDDINGS_TO_RUN = {
         'AIDOcell': DATA_DIR / 'gene_embeddings/AIDOcell_100M_Norman_Aligned_(D=640)',
@@ -41,6 +41,10 @@ def main():
     PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'{pert_name}.csv'
     if pert_to_fit_on == ['trt_sh']:
         PATH_L1000 = DATA_DIR / 'trt_sh_genes_qc.csv'
+    if pert_to_fit_on == ['trt_cp']:
+        PATH_L1000 = DATA_DIR / 'trt_cp_smiles_qc.csv'
+    SPLIT_MAP_PATH = DATA_DIR / f'gene_embeddings/unseen_perturbation_splits/trt_{pert_name}_split_map.csv'
+
     PATH_CTLS = DATA_DIR / 'ctrls.csv'
     PERT_INFO = DATA_DIR / 'gene_embeddings/perts_targets.csv'
 
@@ -48,7 +52,6 @@ def main():
     N_GENE_EMB_PCS = 256
     PERTURBATION_HOLDOUT_SIZE = 0.2
     SUBSAMPLE_FRACTION = None
-    SPLIT_MAP_PATH = DATA_DIR / 'gene_embeddings/unseen_perturbation_splits/trt_sh_split_map.csv'
 
     all_run_results = []
 
