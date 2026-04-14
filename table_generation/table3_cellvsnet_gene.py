@@ -43,7 +43,7 @@ def main():
         PATH_L1000 = DATA_DIR / 'trt_sh_genes_qc.csv'
     if pert_to_fit_on == ['trt_cp']:
         PATH_L1000 = DATA_DIR / 'trt_cp_smiles_qc.csv'
-    SPLIT_MAP_PATH = DATA_DIR / f'gene_embeddings/unseen_perturbation_splits/trt_{pert_name}_split_map.csv'
+    SPLIT_MAP_PATH = DATA_DIR / f'gene_embeddings/unseen_perturbation_splits/{pert_name}_split_map.csv'
 
     PATH_CTLS = DATA_DIR / 'ctrls.csv'
     PERT_INFO = DATA_DIR / 'gene_embeddings/perts_targets.csv'
