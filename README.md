@@ -124,7 +124,7 @@ The following scripts correspond to the different context-representation setting
 
 #### Running Table 3 Experiments
 
-Each script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
+The `table_3_cellvsnet_gene.py` script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
 
 - `trt_cp` – chemical perturbations  
 - `trt_sh` – shRNA perturbations  
@@ -179,7 +179,7 @@ Expression-based representations are derived from LINCS L1000 small-molecule and
 
 #### Running Table 5 Experiments
 
-This script will run and perform bootstraps and signifiance testing for all representations:
+This script will run and perform bootstraps and signifiance testing for all representations, with batch correction:
 
 ```
 python drug_target_bootstrap.py
