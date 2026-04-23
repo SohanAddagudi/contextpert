@@ -19,3 +19,11 @@ python aido_cell_embedding.py --input <path/to/ctrls_symbols.csv> --output_base 
 ```
 
 > Note: Input CSV's first column must be an ID, and the remaining columns must be gene symbols.
+
+## Chemberta
+
+This script generates ChemBERTa embeddings for all perturbations (inst_id) using SMILES strings from trt_cp_smiles_qc.csv. It encodes each molecule with the pretrained ChemBERTa model and saves the resulting embeddings
+
+```bash
+python chemberta_embeddings.py
+```
