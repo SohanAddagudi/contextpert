@@ -59,6 +59,77 @@ For debugging, consider making a smaller version of the dataset with the first 1
 head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 ```
 
+## Baseline Representations
+
+### Training Ridge Regression Predictors
+
+`predictors/train_predictors.py` trains simple ridge regression baselines that map drug structure to cellular representations, and aggregates per-gene representations for shRNA perturbations. These are used as baselines for the DR-Bench and DTR-Bench evaluations (Tables 4 and 5).
+
+**For `trt_cp` (compound perturbations):** trains ridge models from Morgan fingerprints (2048-dim) to three targets — gene expression (977-dim), PCA metagenes (50-dim), and AIDO Cell 3M embeddings (128-dim). Models are fit on the train split of `trt_cp_split_map.csv`, then used to predict for **all** drugs with valid SMILES.
+
+**For `trt_sh` (gene perturbations):** mean-aggregates train-split instances per gene; PCA is fit on train genes only, then applied to all genes (train + test).
+
+```bash
+export CONTEXTPERT_DATA_DIR=data
+python predictors/train_predictors.py
+```
+
+Outputs are written to `predictors/outputs/`:
+
+- `cp_pred_expression.csv`, `cp_pred_metagenes.csv`, `cp_pred_aido_embeddings.csv` — predicted drug representations (keyed by `pert_id`, `smiles`)
+- `sh_repr_expression.csv`, `sh_repr_metagenes.csv`, `sh_repr_aido_embeddings.csv` — aggregated gene representations (keyed by `targetId`)
+
+### Running SPRINT
+
+SPRINT ([panspecies-dti](https://github.com/abhinadduri/panspecies-dti)) generates drug and target embeddings used as a baseline for DR-Bench and DTR-Bench. The pipeline lives in `sprint/` and runs in four stages.
+
+#### 1. Install SPRINT and download the checkpoint
+
+```bash
+conda create -n sprint python=3.10 -y
+conda activate sprint
+pip install git+https://github.com/abhinadduri/panspecies-dti.git
+```
+
+Download `sprint.ckpt` from the [SPRINT checkpoints README](https://github.com/abhinadduri/panspecies-dti/blob/main/checkpoints/README.md) and place it in `<panspecies-dti>/checkpoints/`.
+
+Set the required environment variables:
+
+```bash
+export CONTEXTPERT_DATA_DIR=data
+export SPRINT_DIR=/path/to/panspecies-dti
+```
+
+#### 2. Prepare drug and target inputs
+
+`sprint/01_prepare_inputs.py` builds `drugs.csv` (SMILES from DR-Bench + DTR-Bench) and `targets.csv` (Ensembl → UniProt → protein sequence) under `$CONTEXTPERT_DATA_DIR/sprint/`.
+
+```bash
+# Structure-aware mode (default): downloads AlphaFold structures, requires FoldSeek step below
+python sprint/01_prepare_inputs.py
+
+# Plain-sequence mode: skips structures, fetches AA sequences from UniProt directly
+python sprint/01_prepare_inputs.py --no-structure
+```
+
+#### 3. (Structure-aware only) Run FoldSeek to generate SaProt sequences
+
+Requires [FoldSeek](https://github.com/steineggerlab/foldseek) on `PATH`. This step converts the downloaded AlphaFold CIF files into structure-aware sequences and writes the final `targets.csv`.
+
+```bash
+bash sprint/02a_run_foldseek.sh
+```
+
+Skip this step if you used `--no-structure` in step 2.
+
+#### 4. Generate SPRINT embeddings
+
+```bash
+bash sprint/02_run_sprint_embed.sh
+```
+
+This produces `drug_embeddings.npy` and `target_embeddings.npy` in `$CONTEXTPERT_DATA_DIR/sprint/`.
+
 ## Reproducing Figures and Tables
 
 ### Table 1 (MSE of inferred networks on a sample-held-out split for control measurements.)
