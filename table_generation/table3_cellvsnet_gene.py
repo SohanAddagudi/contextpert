@@ -27,15 +27,17 @@ torch.set_float32_matmul_precision('highest')
 
 def main():
     DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
-    
-    pert_to_fit_on = ['trt_lig']
+
+    # Allow pert_to_fit_on via CLI: `python table3_cellvsnet_gene.py trt_cp`
+    import sys as _sys
+    pert_to_fit_on = [_sys.argv[1]] if len(_sys.argv) > 1 else ['trt_lig']
     pert_name = pert_to_fit_on[0]
     EMBEDDINGS_TO_RUN = {
         'AIDOcell': DATA_DIR / 'gene_embeddings/AIDOcell_100M_Norman_Aligned_(D=640)',
         'AIDOdna': DATA_DIR / 'gene_embeddings/AIDOdna_(D=4352)',
         'AIDOprot': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
-        'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
-        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
+        'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_seq+struct_(D=1024)',
+        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embddings.h5ad',
     }
 
     PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'{pert_name}.csv'
