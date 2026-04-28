@@ -13,6 +13,8 @@ import pandas as pd
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import NearestNeighbors
+from collections import defaultdict
 
 from contextpert.utils import canonicalize_smiles
 
@@ -22,7 +24,8 @@ SPRINT_DIR = os.path.join(DATA_DIR, 'sprint')
 N_BOOT   = 10_000
 SEED     = 42
 ALPHA    = 0.05
-BATCH    = 500   
+BATCH    = 500
+K_LIST   = [1, 5, 10, 50]
 
 
 def auroc_fast(y_true, y_scores):
@@ -119,6 +122,84 @@ def compute_scores(drug_preds, target_preds, pairs_path):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Per-query Hits@k for drug→target and target→drug retrieval
+# ──────────────────────────────────────────────────────────────────────────────
+
+def compute_hits_per_query(drug_preds, target_preds, pairs_path, k_list=K_LIST):
+    """Returns {'drug_to_target': {k: per_query_hits_array}, 'target_to_drug': {...}}.
+
+    Hits@k per query = 1 if any ground-truth positive appears in the top-k nearest
+    neighbors (Euclidean), else 0. Mirrors contextpert.evaluate.drug_target_mapping.
+    """
+    target_pairs_df = pd.read_csv(pairs_path)[['smiles', 'targetId']].drop_duplicates()
+    ref_drugs   = set(target_pairs_df['smiles'])
+    ref_targets = set(target_pairs_df['targetId'])
+
+    dp = drug_preds[drug_preds['smiles'].isin(ref_drugs)].copy()
+    tp = target_preds[target_preds['targetId'].isin(ref_targets)].copy()
+
+    drug_smiles_list = dp['smiles'].tolist()
+    target_id_list   = tp['targetId'].tolist()
+    drug_fcols   = [c for c in dp.columns if c != 'smiles']
+    target_fcols = [c for c in tp.columns if c != 'targetId']
+    X_d = dp[drug_fcols].values.astype(np.float32)
+    X_t = tp[target_fcols].values.astype(np.float32)
+    drug_to_idx   = {s: i for i, s in enumerate(drug_smiles_list)}
+    target_to_idx = {t: i for i, t in enumerate(target_id_list)}
+
+    valid = (target_pairs_df['smiles'].isin(drug_smiles_list)
+             & target_pairs_df['targetId'].isin(target_id_list))
+    pairs = target_pairs_df[valid]
+
+    drug_to_targets = defaultdict(set)
+    target_to_drugs = defaultdict(set)
+    for _, r in pairs.iterrows():
+        drug_to_targets[r['smiles']].add(r['targetId'])
+        target_to_drugs[r['targetId']].add(r['smiles'])
+
+    out = {'drug_to_target': {k: None for k in k_list},
+           'target_to_drug': {k: None for k in k_list}}
+
+    # Drug -> Target
+    n_t = len(target_id_list)
+    max_k_dt = min(max(k_list), n_t)
+    nn_t = NearestNeighbors(n_neighbors=max_k_dt, metric='euclidean', algorithm='brute').fit(X_t)
+    drug_queries = list(drug_to_targets.keys())
+    hits_dt = {k: [] for k in k_list}
+    for q in drug_queries:
+        qi = drug_to_idx[q]
+        _, idxs = nn_t.kneighbors(X_d[qi:qi+1])
+        nbr = [target_id_list[i] for i in idxs[0]]
+        gt = drug_to_targets[q]
+        for k in k_list:
+            kk = min(k, len(nbr))
+            hits_dt[k].append(1 if any(n in gt for n in nbr[:kk]) else 0)
+    for k in k_list:
+        out['drug_to_target'][k] = np.array(hits_dt[k], dtype=np.float64)
+
+    # Target -> Drug
+    n_d = len(drug_smiles_list)
+    max_k_td = min(max(k_list), n_d)
+    nn_d = NearestNeighbors(n_neighbors=max_k_td, metric='euclidean', algorithm='brute').fit(X_d)
+    target_queries = list(target_to_drugs.keys())
+    hits_td = {k: [] for k in k_list}
+    for q in target_queries:
+        qi = target_to_idx[q]
+        _, idxs = nn_d.kneighbors(X_t[qi:qi+1])
+        nbr = [drug_smiles_list[i] for i in idxs[0]]
+        gt = target_to_drugs[q]
+        for k in k_list:
+            kk = min(k, len(nbr))
+            hits_td[k].append(1 if any(n in gt for n in nbr[:kk]) else 0)
+    for k in k_list:
+        out['target_to_drug'][k] = np.array(hits_td[k], dtype=np.float64)
+
+    print(f"    Hits queries: drug→target n={len(drug_queries)}  "
+          f"target→drug n={len(target_queries)}")
+    return out
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # PCA batch correction helper
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -153,7 +234,8 @@ print("=" * 70)
 print("Building representations for all methods...")
 print("=" * 70)
 
-conditions = {}  # key -> (y_true_flat, y_scores_flat)
+conditions = {}     # key -> (y_true_flat, y_scores_flat)
+hits_per_q = {}     # key -> {'drug_to_target': {k: arr}, 'target_to_drug': {k: arr}}
 
 # ── RANDOM ────────────────────────────────────────────────────────────────────
 print("\n[1/6] Random baseline (seed=1)")
@@ -325,6 +407,7 @@ def add(name, dp, tp, n_pcs=0):
     print(f"\n  {label}")
     dp_c, tp_c = apply_pca_correction(dp, tp, n_pcs)
     conditions[label] = compute_scores(dp_c, tp_c, PAIRS_PATH)
+    hits_per_q[label] = compute_hits_per_query(dp_c, tp_c, PAIRS_PATH, K_LIST)
 
 print("\n-- Random --")
 add('random', drug_rand, target_rand)
@@ -462,3 +545,56 @@ print("  95% CI: percentile bootstrap (10,000 resamples)")
 print("  p(vs rand): one-sided paired bootstrap p-value, P(method ≤ random)")
 print("              same resample indices used for all methods (paired test)")
 print("  PCA-n: n leading PCs removed for batch correction")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Query-level Hits@k bootstrap (Drug Hits = drug→target, Target Hits = target→drug)
+# ──────────────────────────────────────────────────────────────────────────────
+
+print("\n\n" + "=" * 100)
+print(f"BOOTSTRAPPING QUERY-LEVEL HITS@k  ({N_BOOT:,} resamples)")
+print("=" * 100)
+
+hits_boot = {}  # key -> direction -> k -> np.array of bootstrap means
+rng_h = np.random.default_rng(SEED + 7)
+for key in hits_per_q:
+    hits_boot[key] = {'drug_to_target': {}, 'target_to_drug': {}}
+    for direction in ('drug_to_target', 'target_to_drug'):
+        per_q = hits_per_q[key][direction]
+        arrs = np.stack([per_q[k] for k in K_LIST], axis=1)  # (n_q, n_k)
+        n_q = arrs.shape[0]
+        if n_q == 0:
+            for k in K_LIST:
+                hits_boot[key][direction][k] = np.full(N_BOOT, np.nan)
+            continue
+        idx_mat = rng_h.integers(0, n_q, size=(N_BOOT, n_q))
+        boot_means = arrs[idx_mat].mean(axis=1)  # (N_BOOT, n_k)
+        for ki, k in enumerate(K_LIST):
+            hits_boot[key][direction][k] = boot_means[:, ki]
+
+def _print_hits_table(direction, title):
+    print(f"\n{title}")
+    header = f"{'Condition':<28}"
+    for k in K_LIST:
+        header += f"  {'Hits@'+str(k):>8}  {'95% CI':>20}"
+    print(header)
+    print("-" * len(header))
+    for key, label, _ in order:
+        if key not in hits_boot:
+            continue
+        row = f"{label:<28}"
+        for k in K_LIST:
+            arr = hits_boot[key][direction][k]
+            mean, lo, hi = ci_str(arr)
+            row += f"  {mean:>8.4f}  [{lo:.4f}, {hi:.4f}]"
+        print(row)
+
+print("\n" + "=" * 100)
+print("DRUG HITS (drug → target retrieval):  query=drug, gallery=targets, recall@k")
+print("=" * 100)
+_print_hits_table('drug_to_target', '')
+
+print("\n" + "=" * 100)
+print("TARGET HITS (target → drug retrieval):  query=target, gallery=drugs, recall@k")
+print("=" * 100)
+_print_hits_table('target_to_drug', '')
