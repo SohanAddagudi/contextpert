@@ -21,19 +21,10 @@
 
 set -e  # Exit on error
 
-export CONTEXTPERT_DATA_DIR = "Path to data directory"
-export SPRINT_DIR = "Path to panspecies-dti repo"
-
-# Check environment variables
-if [ -z "$CONTEXTPERT_DATA_DIR" ]; then
-    echo "ERROR: CONTEXTPERT_DATA_DIR not set"
-    exit 1
-fi
-
-if [ -z "$SPRINT_DIR" ]; then
-    echo "ERROR: SPRINT_DIR not set (path to panspecies-dti repo)"
-    exit 1
-fi
+# CONTEXTPERT_DATA_DIR and SPRINT_DIR must be exported by the caller.
+# (Note: do not use `export VAR = "..."` — Bash treats spaces around `=` as a separate command.)
+: "${CONTEXTPERT_DATA_DIR:?ERROR: CONTEXTPERT_DATA_DIR not set}"
+: "${SPRINT_DIR:?ERROR: SPRINT_DIR not set (path to panspecies-dti repo)}"
 
 SPRINT_DATA_DIR="${CONTEXTPERT_DATA_DIR}/sprint"
 CHECKPOINT="${SPRINT_DIR}/checkpoints/sprint.ckpt"

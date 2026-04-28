@@ -18,9 +18,7 @@ import sys
 from pathlib import Path
 from pyspark.sql import SparkSession, functions as F
 
-# Add parent directory to path to import chembl_utils
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from chembl_utils import chembl_to_smiles_batch
+from contextpert.utils import chembl_to_smiles_batch
 
 REL = "25.06"
 ROOT = os.environ['CONTEXTPERT_RAW_DATA_DIR'] + f"/opentargets/{REL}"

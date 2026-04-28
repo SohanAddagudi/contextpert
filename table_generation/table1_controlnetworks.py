@@ -155,8 +155,9 @@ pert_dummies = pd.get_dummies(df['pert_id'], drop_first=True).values.astype(np.f
 
 if USE_FULL_CONTEXT:
     # Handle missing dose/time (sentinel -666 -> NaN -> mean impute)
-    dose = dose_raw.replace(-666, np.nan)
-    time_ = time_raw.replace(-666, np.nan)
+    # Coerce to numeric — pyarrow may give mixed dtypes when '-666' was stored as str.
+    dose = pd.to_numeric(dose_raw, errors='coerce').replace(-666, np.nan)
+    time_ = pd.to_numeric(time_raw, errors='coerce').replace(-666, np.nan)
     ig_dose = dose.isna().astype(np.float32).values.reshape(-1, 1)
     ig_time = time_.isna().astype(np.float32).values.reshape(-1, 1)
     dose.fillna(dose.mean(), inplace=True)

@@ -32,7 +32,7 @@ TRT_CP_SMILES_OUTFILE = Path(DATA_DIR) / 'trt_cp_smiles.csv'
 
 
 # --- Processing Parameters ---
-CHUNK_SIZE = 100
+CHUNK_SIZE = 5000
 CONTROL_CODES: List[str] = [
     "ctl_vehicle", "ctl_vector", "ctl_untrt",
     "ctl_vehicle.cns", "ctl_vector.cns", "ctl_untrt.cns",
@@ -106,10 +106,18 @@ def prepare_lincs_data(
     #-------------------------------------------------------------------------
     print("Saving separate CSVs for each perturbation type...")
     pert_type_col = 'pert_type'
+    pert_type_dir = os.path.join(output_dir, 'pert_type_csvs')
+    os.makedirs(pert_type_dir, exist_ok=True)
     for pert in merged_df[pert_type_col].unique():
         subset = merged_df[merged_df[pert_type_col] == pert]
+        # Write once at DATA_DIR root, hard-link from pert_type_csvs/ — table scripts
+        # reference both locations, but the on-disk content is identical so we share inodes.
         filename = os.path.join(output_dir, f"{pert}.csv")
         subset.to_csv(filename, index=False)
+        link_path = os.path.join(pert_type_dir, f"{pert}.csv")
+        if os.path.exists(link_path):
+            os.remove(link_path)
+        os.link(filename, link_path)
     
 
 def calculate_control_averages(infile: Path, outfile: Path) -> None:

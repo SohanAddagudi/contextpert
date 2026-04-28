@@ -27,16 +27,22 @@ torch.set_float32_matmul_precision('highest')
 
 def main():
     DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
-    
-    pert_to_fit_on = ['trt_lig']
+
+    # CLI: `python table3_cellvsnet_gene.py <pert_type> [<embedding_name>]`
+    # If <embedding_name> is supplied, only that embedding is trained;
+    # otherwise all 5 embeddings are trained sequentially.
+    import sys as _sys
+    pert_to_fit_on = [_sys.argv[1]] if len(_sys.argv) > 1 else ['trt_lig']
     pert_name = pert_to_fit_on[0]
-    EMBEDDINGS_TO_RUN = {
+    only_emb = _sys.argv[2] if len(_sys.argv) > 2 else None
+    ALL_EMBEDDINGS = {
         'AIDOcell': DATA_DIR / 'gene_embeddings/AIDOcell_100M_Norman_Aligned_(D=640)',
         'AIDOdna': DATA_DIR / 'gene_embeddings/AIDOdna_(D=4352)',
         'AIDOprot': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
-        'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_mean_(D=384)',
-        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embeddings.h5ad',
+        'AIDOprot_struct': DATA_DIR / 'gene_embeddings/AIDOprot_seq+struct_(D=1024)',
+        'PCA': DATA_DIR / 'gene_embeddings/PCA_gene_embddings.h5ad',
     }
+    EMBEDDINGS_TO_RUN = ({only_emb: ALL_EMBEDDINGS[only_emb]} if only_emb else ALL_EMBEDDINGS)
 
     PATH_L1000 = DATA_DIR / 'pert_type_csvs' / f'{pert_name}.csv'
     if pert_to_fit_on == ['trt_sh']:
@@ -55,17 +61,20 @@ def main():
 
     all_run_results = []
 
+    # The intersection is computed across ALL_EMBEDDINGS (not just EMBEDDINGS_TO_RUN)
+    # so that single-embedding runs (CLI 2nd arg) match the full-table evaluation set.
     print("Finding the intersection of all perturbations across all embedding files...")
     pert_info_df = pd.read_csv(PERT_INFO)
     union_of_pert_ids = set()
     intersection_of_pert_ids = None
     loaded_embs_cache = {}  # cache to avoid double-loading h5ad files
 
-    for emb_name, emb_path in EMBEDDINGS_TO_RUN.items():
+    for emb_name, emb_path in ALL_EMBEDDINGS.items():
         try:
             embs = ad.read_h5ad(emb_path)
             embs.obs = embs.obs.set_index('symbol')
-            loaded_embs_cache[emb_name] = embs
+            if emb_name in EMBEDDINGS_TO_RUN:
+                loaded_embs_cache[emb_name] = embs
             available_symbols = set(embs.obs.index)
 
             pert_info_filtered = pert_info_df.dropna(subset=['pert_iname']).copy()
@@ -402,9 +411,10 @@ def main():
         print("Loading best checkpoint and running direct inference...")
         ckpt = torch.load(checkpoint_callback.best_model_path, map_location='cpu', weights_only=False)
         contextualized_model.load_state_dict(ckpt['state_dict'])
-        contextualized_model.cpu()  # run inference on CPU to avoid competing with MPS for RAM
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        contextualized_model.to(device)
         contextualized_model.eval()
-        device = torch.device('cpu')
+        print(f"Inference device: {device}")
 
         n_features = X_train.shape[1]
         n_train, n_test = len(C_train), len(C_test)
@@ -420,7 +430,7 @@ def main():
         betas_mm = np.lib.format.open_memmap(betas_path, mode='w+', dtype='float32', shape=out_shape)
         mus_mm   = np.lib.format.open_memmap(mus_path,   mode='w+', dtype='float32', shape=out_shape)
 
-        def run_inference_to_mm(C_np, offset, batch_size=256):
+        def run_inference_to_mm(C_np, offset, batch_size=2048):
             C_tensor = torch.tensor(C_np.astype(np.float32))
             with torch.no_grad():
                 for start in range(0, len(C_tensor), batch_size):
