@@ -8,7 +8,7 @@ wget -P $CONTEXTPERT_RAW_DATA_DIR/lincs/ https://ftp.ncbi.nlm.nih.gov/geo/series
 # Inst info
 wget -P $CONTEXTPERT_RAW_DATA_DIR/lincs/ https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742%5FBroad%5FLINCS%5Finst%5Finfo.txt.gz
 # Sig metrics
-wget -P $CONTEXTPERT_RAW_DATA_DIR/lincs/ https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742%5FBroad%5FLINCS%5Fsig%5Fmetrics.txt.gza
+wget -P $CONTEXTPERT_RAW_DATA_DIR/lincs/ https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742%5FBroad%5FLINCS%5Fsig%5Fmetrics.txt.gz
 # Sig info
 wget -P $CONTEXTPERT_RAW_DATA_DIR/lincs/ https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742%5FBroad%5FLINCS%5Fsig%5Finfo.txt.gz
 # Unzip all
