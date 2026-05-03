@@ -23,6 +23,7 @@ PATH_L1000 = DATA_DIR / 'trt_cp_smiles_qc.csv'
 PATH_CTLS = DATA_DIR / 'ctrls.csv'
 EMBEDDING_NPZ_FILE = DATA_DIR / 'gene_embeddings' / 'chemberta_embeddings.npz'
 PATH_SPLIT_MAP = DATA_DIR / 'gene_embeddings' / 'unseen_perturbation_splits' / 'trt_cp_split_map.csv'
+PATH_PERT_INFO = DATA_DIR / 'gene_embeddings' / 'perts_targets.csv'
 
 OUTPUT_DIR = Path('./chemberta_model_outputs')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,6 +80,22 @@ df = df.merge(split_map_df[['inst_id', 'dataset_split']], on='inst_id', how='inn
 
 if len(df) < len(split_map_df):
     print(f"Warning: {len(split_map_df) - len(df)} samples from the split map were not found in the main data after QC/filters.")
+
+# Comparability guard: every chemical in the trt_cp evaluation set must have a
+# known target in perts_targets.csv. The target-side (gene) Table 3 columns
+# silently drop perts whose targets aren't in the gene embeddings; if a future
+# perts_targets.csv adds molecules without target labels, the molecule-side
+# scripts would still evaluate them and the Chemical column of Table 3 would
+# stop being row-comparable. Fail loudly instead.
+pert_info = pd.read_csv(PATH_PERT_INFO)
+perts_with_targets = set(pert_info.loc[pert_info['pert_iname'].notna(), 'pert_id'])
+missing = sorted(set(df['pert_id'].dropna().unique()) - perts_with_targets)
+assert not missing, (
+    f"{len(missing)} pert_ids in the trt_cp benchmark split have no target label in "
+    f"{PATH_PERT_INFO.name}; the gene-side Table 3 columns drop these via the embedding "
+    f"intersection, so evaluating ChemBERTa on them would break within-column "
+    f"comparability. First few missing: {missing[:5]}"
+)
 
 df_train = df[df['dataset_split'] == 'train'].copy()
 df_test = df[df['dataset_split'] == 'test'].copy()
