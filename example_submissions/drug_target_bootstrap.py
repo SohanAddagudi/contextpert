@@ -29,27 +29,16 @@ K_LIST   = [1, 5, 10, 50]
 
 
 def auroc_fast(y_true, y_scores):
-    """AUROC via Mann-Whitney U (handles ties correctly with rank averaging)."""
+    """AUROC via Mann-Whitney U (handles ties correctly with rank averaging).
+    Uses scipy.stats.rankdata for vectorized C-level tie averaging — orders of
+    magnitude faster than a Python tie-handling loop on n_pairs ~ 64k.
+    """
+    from scipy.stats import rankdata
     n_pos = int(y_true.sum())
     n_neg = len(y_true) - n_pos
     if n_pos == 0 or n_neg == 0:
         return np.nan
-    order = np.argsort(y_scores, kind='stable')
-    # Assign average ranks for ties
-    ranks = np.empty(len(y_scores), dtype=np.float64)
-    ranks[order] = np.arange(len(y_scores), dtype=np.float64) + 1.0
-    # Average tied ranks
-    ys_sorted = y_scores[order]
-    lo = 0
-    while lo < len(ys_sorted):
-        hi = lo + 1
-        while hi < len(ys_sorted) and ys_sorted[hi] == ys_sorted[lo]:
-            hi += 1
-        if hi - lo > 1:
-            avg = (lo + hi + 1) / 2.0
-            for k in range(lo, hi):
-                ranks[order[k]] = avg
-        lo = hi
+    ranks = rankdata(y_scores, method='average')
     U = float(ranks[y_true == 1].sum()) - n_pos * (n_pos + 1) / 2.0
     return U / (n_pos * n_neg)
 
