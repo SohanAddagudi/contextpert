@@ -2,10 +2,11 @@
 Train ridge regression predictors
 
 For trt_cp (compound perturbations):
-  Input:  Morgan fingerprints (2048-dim) computed from compound SMILES
+  Input:  ChemBERTa embeddings (768-dim) loaded from gene_embeddings/chemberta_embeddings.npz,
+          mean-aggregated per pert_id over its instances.
   Targets: gene expression (977-dim), PCA metagenes (50-dim), AIDO Cell 3M embeddings (128-dim)
   Training: instances in train split of trt_cp_split_map.csv
-  Prediction: all compounds with valid SMILES
+  Prediction: all compounds with valid SMILES + ChemBERTa embedding
 
 For trt_sh (gene perturbations):
   Uses mean aggregation from train-split instances, with PCA fit on train genes only.
@@ -26,13 +27,12 @@ from pathlib import Path
 from sklearn.linear_model import Ridge
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-from rdkit import Chem
-from rdkit.Chem import rdFingerprintGenerator
 
 from contextpert.utils import canonicalize_smiles
 
 DATA_DIR  = Path(os.environ["CONTEXTPERT_DATA_DIR"])
 SPLIT_DIR = DATA_DIR / "gene_embeddings" / "unseen_perturbation_splits"
+CHEMBERTA_NPZ = DATA_DIR / "gene_embeddings" / "chemberta_embeddings.npz"
 OUT_DIR   = Path(__file__).parent / "outputs"
 OUT_DIR.mkdir(exist_ok=True)
 
@@ -48,19 +48,15 @@ META_COLS_SH = {"inst_id", "cell_id", "pert_id", "pert_type", "pert_dose",
                 "pct_self_rank_q25", "gene_symbol", "ensembl_id"}
 
 
-# ── Morgan fingerprint utilities ───────────────────────────────────────────────
+# ── ChemBERTa embedding utilities ──────────────────────────────────────────────
 
-_morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+def load_chemberta_embeddings(npz_path):
+    """Returns (dict inst_id -> np.ndarray, embedding dim)."""
+    data = np.load(npz_path, allow_pickle=True)
+    iid2vec = dict(zip(data["inst_ids"], data["embeddings"]))
+    sample = next(iter(iid2vec.values()))
+    return iid2vec, int(np.asarray(sample).shape[0])
 
-def compute_morgan(smi):
-    mol = Chem.MolFromSmiles(smi)
-    if mol is None:
-        return None
-    arr = np.zeros(2048, dtype=np.float32)
-    fp = _morgan_gen.GetFingerprint(mol)
-    for i in range(2048):
-        arr[i] = fp[i]
-    return arr
 
 def safe_canon(s):
     try:
@@ -74,7 +70,7 @@ def safe_canon(s):
 # ==============================================================================
 
 print("=" * 70)
-print("Part 1: Training compound perturbation predictor (trt_cp)")
+print("Part 1: Training compound perturbation predictor (trt_cp) — ChemBERTa input")
 print("=" * 70)
 
 # Load data
@@ -90,13 +86,32 @@ cp_split = pd.read_csv(SPLIT_DIR / "trt_cp_split_map.csv")
 print(f"  Splits: {cp_split['split'].value_counts().to_dict()}")
 cp_df = cp_df.merge(cp_split[["inst_id", "split"]], on="inst_id", how="left")
 
-# Compute Morgan fingerprints for all drugs
-print("Computing Morgan fingerprints...")
-drug_info = cp_df.groupby("pert_id")["canonical_smiles"].first().reset_index()
-drug_info["morgan"]  = drug_info["canonical_smiles"].apply(compute_morgan)
-drug_info["smiles"]  = drug_info["canonical_smiles"].apply(safe_canon)
-drug_info = drug_info.dropna(subset=["morgan", "smiles"]).reset_index(drop=True)
-print(f"  {len(drug_info)} drugs with valid Morgan fingerprints")
+# Load ChemBERTa per-instance embeddings
+print(f"Loading ChemBERTa embeddings from {CHEMBERTA_NPZ.name}...")
+iid2vec, emb_dim = load_chemberta_embeddings(CHEMBERTA_NPZ)
+print(f"  {len(iid2vec):,} inst_id embeddings, dim={emb_dim}")
+
+# Filter cp_df to instances with ChemBERTa embeddings, then attach the vector
+before = len(cp_df)
+cp_df = cp_df[cp_df["inst_id"].isin(iid2vec)].copy()
+print(f"  rows with ChemBERTa embedding: {len(cp_df):,}/{before:,}")
+cp_df["chemberta"] = cp_df["inst_id"].map(iid2vec)
+
+# Aggregate ChemBERTa embeddings by pert_id (mean over its instances)
+print("Aggregating ChemBERTa embeddings by pert_id (mean)...")
+def _mean_stack(vecs):
+    return np.mean(np.stack(list(vecs)), axis=0)
+
+drug_chem = (
+    cp_df.groupby("pert_id")["chemberta"].apply(_mean_stack).reset_index()
+)
+drug_smi = (
+    cp_df.groupby("pert_id")["canonical_smiles"].first().reset_index()
+)
+drug_info = drug_chem.merge(drug_smi, on="pert_id")
+drug_info["smiles"] = drug_info["canonical_smiles"].apply(safe_canon)
+drug_info = drug_info.dropna(subset=["chemberta", "smiles"]).reset_index(drop=True)
+print(f"  {len(drug_info)} drugs with valid ChemBERTa embedding + SMILES")
 
 # Aggregate train instances by drug
 print("Aggregating train instances by drug...")
@@ -108,12 +123,12 @@ train_expr_by_drug = (
 )
 print(f"  {len(train_expr_by_drug)} drugs in train split")
 
-# Align Morgan FPs with train expression (inner join on pert_id)
-train_aligned = drug_info[["pert_id", "smiles", "morgan"]].merge(
+# Align ChemBERTa with train expression (inner join on pert_id)
+train_aligned = drug_info[["pert_id", "smiles", "chemberta"]].merge(
     train_expr_by_drug, on="pert_id", how="inner"
 ).reset_index(drop=True)
-X_train = np.stack(train_aligned["morgan"].values)   # (n_train, 2048)
-Y_expr  = train_aligned[gene_cols].values            # (n_train, 977)
+X_train = np.stack(train_aligned["chemberta"].values).astype(np.float32)  # (n_train, 768)
+Y_expr  = train_aligned[gene_cols].values                                  # (n_train, 977)
 print(f"  Training matrix: X={X_train.shape}, Y_expr={Y_expr.shape}")
 
 # ---------- Expression predictor ----------
@@ -149,10 +164,10 @@ train_emb_by_drug = (
     .mean()
     .reset_index()
 )
-train_emb_aligned = train_aligned[["pert_id", "morgan"]].merge(
+train_emb_aligned = train_aligned[["pert_id", "chemberta"]].merge(
     train_emb_by_drug, on="pert_id", how="inner"
 ).reset_index(drop=True)
-X_train_emb = np.stack(train_emb_aligned["morgan"].values)
+X_train_emb = np.stack(train_emb_aligned["chemberta"].values).astype(np.float32)
 Y_emb       = train_emb_aligned[emb_cols].values
 print(f"  Training matrix: X={X_train_emb.shape}, Y_emb={Y_emb.shape}")
 
@@ -163,7 +178,7 @@ del emb_df, train_emb_by_drug, train_emb_aligned, X_train_emb, Y_emb
 
 # ---------- Predict for ALL drugs ----------
 print("\n-- Generating predictions for all drugs --")
-X_all        = np.stack(drug_info["morgan"].values)  # (n_all, 2048)
+X_all        = np.stack(drug_info["chemberta"].values).astype(np.float32)  # (n_all, 768)
 all_pert_ids = drug_info["pert_id"].values
 all_smiles   = drug_info["smiles"].values
 
@@ -241,9 +256,17 @@ all_meta_arr = sh_pca.transform(sh_scaler.transform(all_expr_arr))   # (n_genes,
 
 # AIDO embeddings
 print("Loading trt_sh_genes_qc_aido_cell_3m_embeddings.csv...")
-sh_emb_df = pd.read_csv(DATA_DIR / "trt_sh_genes_qc_aido_cell_3m_embeddings.csv", low_memory=False)
-sh_emb_df = sh_emb_df[sh_emb_df["ensembl_id"].notna()].copy()
+sh_emb_path = DATA_DIR / "trt_sh_genes_qc_aido_cell_3m_embeddings.csv"
+if not sh_emb_path.exists():
+    sh_emb_path = DATA_DIR / "trt_sh_qc_aido_cell_3m_embeddings.csv"
+sh_emb_df = pd.read_csv(sh_emb_path, low_memory=False)
 sh_emb_cols = [c for c in sh_emb_df.columns if c.startswith("emb_")]
+if "ensembl_id" not in sh_emb_df.columns:
+    _ann = pd.read_csv(DATA_DIR / "trt_sh_genes_qc.csv",
+                       usecols=["inst_id", "ensembl_id"], low_memory=False)
+    _ann = _ann[_ann["ensembl_id"].notna()]
+    sh_emb_df = sh_emb_df.merge(_ann, on="inst_id", how="inner")
+sh_emb_df = sh_emb_df[sh_emb_df["ensembl_id"].notna()].copy()
 sh_emb_by_gene = (
     sh_emb_df.groupby("ensembl_id")[sh_emb_cols]
     .mean()
