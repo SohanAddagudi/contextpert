@@ -1,6 +1,6 @@
 """
 Jointly train a single ContextualizedCorrelation network across all four
-perturbation types (trt_cp, trt_sh, trt_oe, trt_lig).
+perturbation types (trt_cp, trt_sh, trt_oe, trt_lig) 
 """
 import os
 import warnings
@@ -21,10 +21,6 @@ from contextualized.data import CorrelationDataModule
 from contextualized.baselines.networks import CorrelationNetwork
 
 
-# -----------------------------------------------------------------------------
-# Config
-# -----------------------------------------------------------------------------
-
 RANDOM_STATE = 10
 os.environ['PYTHONHASHSEED'] = str(RANDOM_STATE)
 seed_everything(RANDOM_STATE, workers=True)
@@ -38,7 +34,6 @@ PATH_CTLS      = DATA_DIR / 'ctrls.csv'
 PATH_PERT_INFO = DATA_DIR / 'gene_embeddings' / 'perts_targets.csv'
 SPLIT_DIR      = DATA_DIR / 'gene_embeddings' / 'unseen_perturbation_splits'
 
-# Per-type expression CSVs
 EXPR_CSV = {
     'trt_cp':  DATA_DIR / 'trt_cp_smiles_qc.csv',
     'trt_sh':  DATA_DIR / 'trt_sh_genes_qc.csv',
@@ -47,37 +42,35 @@ EXPR_CSV = {
 }
 
 PERT_EMB_PATH = {
-    'trt_cp':  DATA_DIR / 'gene_embeddings' / 'AIDOprot_mean_(D=384)',
+    'trt_cp':  DATA_DIR / 'gene_embeddings' / 'chemberta_embeddings.npz',
     'trt_sh':  DATA_DIR / 'gene_embeddings' / 'AIDOprot_mean_(D=384)',
     'trt_oe':  DATA_DIR / 'gene_embeddings' / 'AIDOprot_mean_(D=384)',
-    'trt_lig': DATA_DIR / 'gene_embeddings' / 'AIDOprot_mean_(D=384)',
+    'trt_lig': DATA_DIR / 'gene_embeddings' / 'AIDOprot_seq+struct_(D=1024)',
 }
-
-# Per-type unseen-perturbation split map
 SPLIT_MAP = {pt: SPLIT_DIR / f'{pt}_split_map.csv' for pt in EXPR_CSV}
 
-# Pert types whose inference outputs are saved (for downstream tasks)
 SAVE_TYPES = ('trt_cp', 'trt_sh')
-
-# Pert types that go into training
 ALL_TYPES = ('trt_cp', 'trt_sh', 'trt_oe', 'trt_lig')
+GENE_TARGET_TYPES = ('trt_sh', 'trt_oe', 'trt_lig')
 
+N_DATA_PCS         = 50
+N_PERT_EMB_PCS     = 16
+NUM_ARCHETYPES     = 100
+MAX_EPOCHS         = 7
+BATCH_SIZE         = 64
+VAL_FRAC           = 0.1
+BALANCE_PER_TYPE   = 30_000
+LEARNING_RATE      = 1e-3
+ENCODER_KWARGS     = {'width': 128, 'layers': 2, 'link_fn': 'identity'}
 
-N_DATA_PCS     = 50
-N_PERT_EMB_PCS = 256
-NUM_ARCHETYPES = 50
-MAX_EPOCHS     = 5
-BATCH_SIZE     = 32
-VAL_FRAC       = 0.2
-
-OUTPUT_DIR = Path(__file__).parent / 'joint_model_outputs'
+OUTPUT_DIR = Path(__file__).parent / 'best_joint_model_outputs'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 print(f'Outputs will be saved to: {OUTPUT_DIR.resolve()}')
 
 
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
+# =============================================================================
+# STEP 1: Load per-type expression data + pert embeddings
+# =============================================================================
 
 def qc_filter(df):
     bad = (
@@ -88,7 +81,6 @@ def qc_filter(df):
 
 
 def fill_pert_time_dose(df_train, df_test):
-    """Replace -666 with train-set mean within this pert_type. Adds ignore-flag cols."""
     for d in (df_train, df_test):
         d['ignore_flag_pert_time'] = (d['pert_time'] == -666).astype(int)
         d['ignore_flag_pert_dose'] = (d['pert_dose'] == -666).astype(int)
@@ -102,7 +94,6 @@ def fill_pert_time_dose(df_train, df_test):
 
 
 def load_gene_embedding(emb_path):
-    """Load a gene-embedding h5ad and return symbol→vector dict and dim."""
     embs = ad.read_h5ad(emb_path)
     embs.obs = embs.obs.set_index('symbol')
     X = embs.X.toarray() if hasattr(embs.X, 'toarray') else np.asarray(embs.X)
@@ -111,7 +102,6 @@ def load_gene_embedding(emb_path):
 
 
 def get_pert_embeddings_gene(unique_pert_ids, sym2vec, pert_info_df):
-    """For trt_sh/trt_oe/trt_lig: average gene embeddings of each pert's targets."""
     mapping = pert_info_df.dropna(subset=['pert_iname']).copy()
     mapping['gene'] = mapping['pert_iname'].str.split(';')
     mapping = mapping.explode('gene')
@@ -119,7 +109,6 @@ def get_pert_embeddings_gene(unique_pert_ids, sym2vec, pert_info_df):
     mapping = mapping[mapping['gene'] != '']
     mapping = mapping[mapping['pert_id'].isin(unique_pert_ids)]
     mapping = mapping[mapping['gene'].isin(sym2vec)]
-
     pert_embs = {}
     if not mapping.empty:
         vecs = np.vstack(mapping['gene'].map(sym2vec).values)
@@ -127,7 +116,6 @@ def get_pert_embeddings_gene(unique_pert_ids, sym2vec, pert_info_df):
         mapping['_idx'] = np.arange(len(mapping))
         for pid, idxs in mapping.groupby('pert_id')['_idx']:
             pert_embs[pid] = vecs[list(idxs)].mean(axis=0)
-
     missing = [p for p in unique_pert_ids if p not in pert_embs]
     if missing:
         warnings.warn(f'{len(missing)} pert_ids have no gene embedding (zero-padded).')
@@ -139,17 +127,13 @@ def load_chemberta_embeddings(npz_path):
     return dict(zip(data['inst_ids'], data['embeddings']))
 
 
-# -----------------------------------------------------------------------------
-# Step 1 — load each pert_type's data, compute its pert-embedding per row
-# -----------------------------------------------------------------------------
-
 print('=' * 78)
 print('STEP 1: Loading per-type expression data + pert embeddings')
 print('=' * 78)
 
 pert_info_df = pd.read_csv(PATH_PERT_INFO)
 
-# Per-type pert-id filter
+
 def perts_with_target_in_embedding(emb_path, pert_info):
     embs = ad.read_h5ad(emb_path)
     available = set(embs.obs.set_index('symbol').index)
@@ -158,21 +142,31 @@ def perts_with_target_in_embedding(emb_path, pert_info):
     return set(pinfo.loc[pinfo['_t'].apply(lambda t: not t.isdisjoint(available)), 'pert_id'])
 
 
-per_type_pert_filter = {}
+loaded_chem_embs = {}
+loaded_gene_embs = {}
 for pt in ALL_TYPES:
+    p = PERT_EMB_PATH[pt]
+    if pt == 'trt_cp':
+        if p not in loaded_chem_embs:
+            iid2vec = load_chemberta_embeddings(p)
+            sample_vec = next(iter(iid2vec.values()))
+            dim = int(np.asarray(sample_vec).shape[0])
+            loaded_chem_embs[p] = (iid2vec, dim)
+            print(f'  loaded ChemBERTa: {p.name}  n_inst={len(iid2vec):,}  dim={dim}')
+    else:
+        if p not in loaded_gene_embs:
+            loaded_gene_embs[p] = load_gene_embedding(p)
+            sym2vec, dim = loaded_gene_embs[p]
+            print(f'  loaded gene embeddings: {p.name}  n_genes={len(sym2vec):,}  dim={dim}')
+
+
+per_type_pert_filter = {}
+for pt in GENE_TARGET_TYPES:
     per_type_pert_filter[pt] = perts_with_target_in_embedding(PERT_EMB_PATH[pt], pert_info_df)
     print(f'  {pt}: {len(per_type_pert_filter[pt]):,} perts whose targets are in {PERT_EMB_PATH[pt].name}')
 
 
-# Cache gene-embedding files (one per unique path; trt_cp/trt_sh/trt_oe share AIDOprot)
-loaded_gene_embs = {}
-for pt in ALL_TYPES:
-    p = PERT_EMB_PATH[pt]
-    if p not in loaded_gene_embs:
-        loaded_gene_embs[p] = load_gene_embedding(p)
-
-
-per_type_data = {}  
+per_type_data = {}
 
 for pt in ALL_TYPES:
     print(f'\n--- {pt} ---')
@@ -185,33 +179,34 @@ for pt in ALL_TYPES:
     if pt == 'trt_cp':
         df = df.dropna(subset=['canonical_smiles'])
         df = df[df['canonical_smiles'] != '']
+        iid2vec, emb_dim = loaded_chem_embs[PERT_EMB_PATH[pt]]
+        before = len(df)
+        df = df[df['inst_id'].isin(iid2vec)]
+        print(f'  rows with ChemBERTa embedding: {len(df):,}/{before:,}')
+    else:
+        df = df[df['pert_id'].isin(per_type_pert_filter[pt])]
 
-    df = df[df['pert_id'].isin(per_type_pert_filter[pt])]
-
-    # Train/test split via the per-type unseen-perturbation split map
     sm = pd.read_csv(SPLIT_MAP[pt])[['inst_id', 'split']]
     df = df.merge(sm, on='inst_id', how='inner')
 
-    if pt == 'trt_cp':
-        perts_with_tgts = set(pert_info_df.loc[pert_info_df['pert_iname'].notna(), 'pert_id'])
-        missing = sorted(set(df['pert_id'].dropna().unique()) - perts_with_tgts)
-        assert not missing, (
-            f'{len(missing)} trt_cp pert_ids lack target labels in perts_targets.csv; '
-            f'first few: {missing[:5]}'
-        )
     df_train = df[df['split'] == 'train'].drop(columns='split').copy()
     df_test  = df[df['split'] == 'test' ].drop(columns='split').copy()
     print(f'  rows: train={len(df_train):,}  test={len(df_test):,}')
 
     fill_pert_time_dose(df_train, df_test)
 
-    # Per-row raw pert-embedding (gene-target-based for ALL types now).
-    sym2vec, emb_dim = loaded_gene_embs[PERT_EMB_PATH[pt]]
-    all_pids = pd.concat([df_train['pert_id'], df_test['pert_id']]).unique()
-    pid2vec = get_pert_embeddings_gene(all_pids, sym2vec, pert_info_df)
-    zero = np.zeros(emb_dim, dtype=np.float32)
-    emb_train = np.array([pid2vec.get(p, zero) for p in df_train['pert_id']], dtype=np.float32)
-    emb_test  = np.array([pid2vec.get(p, zero) for p in df_test['pert_id']],  dtype=np.float32)
+    if pt == 'trt_cp':
+        iid2vec, emb_dim = loaded_chem_embs[PERT_EMB_PATH[pt]]
+        emb_train = np.array([iid2vec[iid] for iid in df_train['inst_id']], dtype=np.float32)
+        emb_test  = np.array([iid2vec[iid] for iid in df_test['inst_id']],  dtype=np.float32)
+    else:
+        sym2vec, emb_dim = loaded_gene_embs[PERT_EMB_PATH[pt]]
+        all_pids = pd.concat([df_train['pert_id'], df_test['pert_id']]).unique()
+        pid2vec = get_pert_embeddings_gene(all_pids, sym2vec, pert_info_df)
+        zero = np.zeros(emb_dim, dtype=np.float32)
+        emb_train = np.array([pid2vec.get(p, zero) for p in df_train['pert_id']], dtype=np.float32)
+        emb_test  = np.array([pid2vec.get(p, zero) for p in df_test['pert_id']],  dtype=np.float32)
+
     print(f'  pert emb dim raw = {emb_dim}')
 
     per_type_data[pt] = dict(
@@ -220,16 +215,14 @@ for pt in ALL_TYPES:
     )
 
 
-# -----------------------------------------------------------------------------
-# Step 2 — per-type StandardScaler + PCA(256) on pert embeddings (train-only fit)
-# -----------------------------------------------------------------------------
+# =============================================================================
+# STEP 2: StandardScaler + PCA on pert embeddings
+# =============================================================================
 
 print('\n' + '=' * 78)
-print('STEP 2: StandardScaler+PCA on pert embeddings -> 256 dims')
-print('       (types sharing the same embedding source share one scaler+PCA)')
+print(f'STEP 2: StandardScaler+PCA on pert embeddings -> {N_PERT_EMB_PCS} dims')
 print('=' * 78)
 
-# Group pert_types by embedding source 
 PE_FIT_N = 20_000
 rng_pe = np.random.default_rng(RANDOM_STATE)
 groups = {}
@@ -270,16 +263,16 @@ for emb_path, pt_group in groups.items():
         print(f'    {pt}: train {et.shape}  test {es.shape}')
 
 
-# -----------------------------------------------------------------------------
-# Step 3 — get the shared 978 gene-expression columns; fit train-only scaler+PCA
-# -----------------------------------------------------------------------------
+# =============================================================================
+# STEP 3: Build expression feature matrix
+# =============================================================================
 
 print('\n' + '=' * 78)
-print('STEP 3: Build expression feature matrix (978 -> StandardScaler -> PCA(50) -> StandardScaler)')
+print(f'STEP 3: Build expression feature matrix (-> StandardScaler -> PCA({N_DATA_PCS}) -> StandardScaler)')
 print('=' * 78)
 
-# Find shared numeric expression cols across all four CSVs
-DROP = {'pert_dose', 'pert_dose_unit', 'pert_time', 'distil_cc_q75', 'pct_self_rank_q25'}
+DROP = {'pert_dose', 'pert_dose_unit', 'pert_time', 'distil_cc_q75', 'pct_self_rank_q25',
+        'ignore_flag_pert_time', 'ignore_flag_pert_dose'}
 
 def numeric_feature_cols(df):
     return [c for c in df.select_dtypes(include=[np.number]).columns if c not in DROP]
@@ -291,7 +284,6 @@ for pt in ALL_TYPES:
 shared_cols = sorted(shared_cols)
 print(f'  Shared expression feature columns: {len(shared_cols)}')
 
-# Joint balanced StandardScaler 
 rng_bal = np.random.default_rng(RANDOM_STATE)
 SCALER_FIT_N = 20_000
 balanced_fit_blocks = []
@@ -315,7 +307,6 @@ X_train_scaled = scaler_genes.transform(np.vstack(X_train_blocks)).astype(np.flo
 X_test_scaled  = scaler_genes.transform(np.vstack(X_test_blocks_raw)).astype(np.float32)
 del X_train_blocks, X_test_blocks_raw, balanced_fit_blocks
 
-# Fit PCA on the same balanced subset (now scaled with the balanced scaler)
 X_balanced_scaled = scaler_genes.transform(X_balanced_fit).astype(np.float32)
 del X_balanced_fit
 pca_data = PCA(n_components=N_DATA_PCS, random_state=RANDOM_STATE).fit(X_balanced_scaled)
@@ -332,9 +323,9 @@ del X_train_pca, X_test_pca
 print(f'  Final expression matrix: train {X_train.shape}  test {X_test.shape}')
 
 
-# -----------------------------------------------------------------------------
-# Step 4 — control-cell PCA (joint, fit on the union of cells)
-# -----------------------------------------------------------------------------
+# =============================================================================
+# STEP 4: Control-cell PCA
+# =============================================================================
 
 print('\n' + '=' * 78)
 print('STEP 4: Control-cell embeddings via PCA(50) on ctrls.csv')
@@ -356,35 +347,16 @@ cell2vec = dict(zip(ctrls_df.index, ctrls_pcs))
 print(f'  cell2vec built for {len(cell2vec)} cells (PCs={n_ctrl_pcs})')
 
 
-# -----------------------------------------------------------------------------
-# Step 5 — assemble row-aligned context block; drop rows whose cell isn't in cell2vec
-# -----------------------------------------------------------------------------
+# =============================================================================
+# STEP 5: Assemble row-aligned context block
+# =============================================================================
 
 print('\n' + '=' * 78)
 print('STEP 5: Assembling context matrix')
 print('=' * 78)
 
-PT_INDEX = {pt: i for i, pt in enumerate(ALL_TYPES)}  # one-hot index
+PT_INDEX = {pt: i for i, pt in enumerate(ALL_TYPES)}
 
-
-def build_per_type_continuous(d):
-    """Return (cont_train, cont_test): [cell_pcs, pert_time, pert_dose] in row order."""
-    out = []
-    for split in ('train', 'test'):
-        df = d[f'df_{split}']
-        cells = df['cell_id'].to_numpy()
-        keep = np.array([c in cell2vec for c in cells])
-        cell_arr = np.vstack([cell2vec[c] for c in cells[keep]])
-        cont = np.hstack([
-            cell_arr,
-            df.loc[keep, 'pert_time'].to_numpy().reshape(-1, 1),
-            df.loc[keep, 'pert_dose'].to_numpy().reshape(-1, 1),
-        ]).astype(np.float32)
-        out.append((cont, keep))
-    return out  # [(cont_train, keep_train), (cont_test, keep_test)]
-
-
-# Build keep masks first so we can apply them everywhere consistently
 keep_per_type = {}
 for pt in ALL_TYPES:
     d = per_type_data[pt]
@@ -395,9 +367,7 @@ for pt in ALL_TYPES:
           f'test {keep_test.sum()}/{len(keep_test)}')
 
 
-# Slice X (it's stacked per-type in ALL_TYPES order) by keep masks
 def stitch_keep(blocks_per_type, keep_per_split):
-    """blocks_per_type: list of arrays in ALL_TYPES order. keep_per_split: idx 0=train, 1=test."""
     out_blocks = []
     offsets = []
     o = 0
@@ -434,20 +404,34 @@ for pt in ALL_TYPES:
     df_te = d['df_test'].loc[k_te]
     cells_tr = df_tr['cell_id'].to_numpy()
     cells_te = df_te['cell_id'].to_numpy()
-    cont_tr = np.vstack([cell2vec[c] for c in cells_tr]).astype(np.float32)
-    cont_te = np.vstack([cell2vec[c] for c in cells_te]).astype(np.float32)
-    cont_train_blocks.append(cont_tr)
-    cont_test_blocks.append(cont_te)
+    cell_arr_tr = np.vstack([cell2vec[c] for c in cells_tr]).astype(np.float32)
+    cell_arr_te = np.vstack([cell2vec[c] for c in cells_te]).astype(np.float32)
+    extras_tr = np.column_stack([
+        df_tr['pert_time'].to_numpy(dtype=np.float32),
+        df_tr['pert_dose'].to_numpy(dtype=np.float32),
+        df_tr['ignore_flag_pert_time'].to_numpy(dtype=np.float32),
+        df_tr['ignore_flag_pert_dose'].to_numpy(dtype=np.float32),
+    ])
+    extras_te = np.column_stack([
+        df_te['pert_time'].to_numpy(dtype=np.float32),
+        df_te['pert_dose'].to_numpy(dtype=np.float32),
+        df_te['ignore_flag_pert_time'].to_numpy(dtype=np.float32),
+        df_te['ignore_flag_pert_dose'].to_numpy(dtype=np.float32),
+    ])
+    cont_train_blocks.append(np.hstack([cell_arr_tr, extras_tr]))
+    cont_test_blocks .append(np.hstack([cell_arr_te, extras_te]))
 
 cont_train = np.vstack(cont_train_blocks)
 cont_test  = np.vstack(cont_test_blocks)
-scaler_context = StandardScaler().fit(cont_train)
-cont_train = scaler_context.transform(cont_train).astype(np.float32)
-cont_test  = scaler_context.transform(cont_test).astype(np.float32)
-print(f'  Continuous context (cell_pcs only): train {cont_train.shape}  test {cont_test.shape}')
+
+cont_scale_cols = list(range(n_ctrl_pcs)) + [n_ctrl_pcs, n_ctrl_pcs + 1]
+sc_cont = StandardScaler().fit(cont_train[:, cont_scale_cols])
+cont_train[:, cont_scale_cols] = sc_cont.transform(cont_train[:, cont_scale_cols]).astype(np.float32)
+cont_test [:, cont_scale_cols] = sc_cont.transform(cont_test [:, cont_scale_cols]).astype(np.float32)
+print(f'  Continuous context (cell_pcs + pert_time + pert_dose + flags): '
+      f'train {cont_train.shape}  test {cont_test.shape}')
 
 
-# Pert-emb PCA blocks 
 pemb_train_blocks, pemb_test_blocks = [], []
 oh_train_blocks,  oh_test_blocks  = [], []
 pt_label_train_blocks, pt_label_test_blocks = [], []
@@ -482,16 +466,15 @@ print(f'  C_train {C_train.shape}    X_train {X_train.shape}')
 print(f'  C_test  {C_test.shape}    X_test  {X_test.shape}')
 
 
-# Population-baseline reference (matches base scripts' printout)
 pop_model = CorrelationNetwork()
 pop_model.fit(X_train)
 print(f'  Population Train MSE: {pop_model.measure_mses(X_train).mean():.4f}')
 print(f'  Population Test  MSE: {pop_model.measure_mses(X_test).mean():.4f}')
 
 
-# -----------------------------------------------------------------------------
-# Step 6 — train ContextualizedCorrelation
-# -----------------------------------------------------------------------------
+# =============================================================================
+# STEP 6: Train ContextualizedCorrelation
+# =============================================================================
 
 print('\n' + '=' * 78)
 print('STEP 6: Training ContextualizedCorrelation')
@@ -505,11 +488,27 @@ train_idx, val_idx = train_test_split(
 )
 val_pt_counts = pd.Series(pt_label_train[val_idx]).map({i: pt for pt, i in PT_INDEX.items()}).value_counts().to_dict()
 print(f'  Stratified val split per pert_type: {val_pt_counts}')
+
+rng_bal_idx = np.random.default_rng(RANDOM_STATE)
+train_pt = pt_label_train[train_idx]
+balanced_idx = []
+for i, pt in enumerate(ALL_TYPES):
+    pt_idxs = train_idx[train_pt == i]
+    if len(pt_idxs) >= BALANCE_PER_TYPE:
+        pick = rng_bal_idx.choice(pt_idxs, size=BALANCE_PER_TYPE, replace=False)
+    else:
+        pick = rng_bal_idx.choice(pt_idxs, size=BALANCE_PER_TYPE, replace=True)
+    balanced_idx.append(pick)
+    print(f'  {pt}: {len(pt_idxs):,} unique -> {BALANCE_PER_TYPE:,} sampled')
+train_idx = np.concatenate(balanced_idx)
+rng_bal_idx.shuffle(train_idx)
+print(f'  Balanced train -> {len(train_idx):,} rows total')
+
 datamodule = CorrelationDataModule(
     C_train=C_train[train_idx], X_train=X_train[train_idx],
     C_val=C_train[val_idx],     X_val=X_train[val_idx],
     C_test=C_test,              X_test=X_test,
-    C_predict=C_test,           X_predict=X_test,  
+    C_predict=C_test,           X_predict=X_test,
     batch_size=BATCH_SIZE,
 )
 
@@ -517,7 +516,9 @@ model = ContextualizedCorrelation(
     context_dim=C_train.shape[1],
     x_dim=X_train.shape[1],
     encoder_type='mlp',
+    encoder_kwargs=ENCODER_KWARGS,
     num_archetypes=NUM_ARCHETYPES,
+    learning_rate=LEARNING_RATE,
 )
 
 ckpt_cb = ModelCheckpoint(monitor='val_loss', mode='min', save_top_k=1, filename='best_model')
@@ -532,7 +533,9 @@ trainer.fit(model, datamodule=datamodule)
 print(f'  best_model_path: {ckpt_cb.best_model_path}')
 
 
-
+# =============================================================================
+# STEP 7: Per-pert-type inference + MSE; save outputs
+# =============================================================================
 
 print('\n' + '=' * 78)
 print('STEP 7: Per-pert-type inference + MSE; save outputs for trt_cp + trt_sh')
@@ -552,7 +555,6 @@ def slice_offsets(offsets, pt):
     raise KeyError(pt)
 
 
-
 n_x = X_train.shape[1]
 total_save_rows = 0
 for pt in SAVE_TYPES:
@@ -568,8 +570,6 @@ mus_mm   = np.lib.format.open_memmap(str(mus_path),  mode='w+', dtype='float32',
 
 
 def infer_and_mse(C_np, X_np, save_offset=None, batch=2048):
-    """Run inference on (C_np, X_np). Compute per-row MSE using betas, mus, and X.
-    If save_offset is not None, write corrs + mus into the memmaps at that offset."""
     n = len(C_np)
     if n == 0:
         return np.array([], dtype=np.float64)
@@ -582,7 +582,6 @@ def infer_and_mse(C_np, X_np, save_offset=None, batch=2048):
             betas = out['betas'].cpu().numpy()
             mus   = out['mus'].cpu().numpy()
             x     = X_np[s:e]
-            # residuals[b, j, k] = x_b_j - β_b_j_k * x_b_k - μ_b_j_k
             resid = x[:, :, None] - betas * x[:, None, :] - mus
             chunk = np.sum(resid ** 2, axis=(1, 2)) / (x.shape[-1] ** 2)
             chunk[np.isnan(betas).any(axis=(1, 2))] = np.nan
@@ -593,8 +592,7 @@ def infer_and_mse(C_np, X_np, save_offset=None, batch=2048):
     return mses
 
 
-# Per-(pert_type, split) MSE arrays
-mse_per = {}  # (pt, split) -> np.ndarray
+mse_per = {}
 save_offset = 0
 save_meta_rows = []
 
@@ -607,7 +605,6 @@ for pt in ALL_TYPES:
     C_te = C_test [lo_te:hi_te]; X_te = X_test [lo_te:hi_te]
 
     if pt in SAVE_TYPES:
-        # train block
         df_tr = per_type_data[pt]['df_train'].loc[k_tr].reset_index(drop=True)
         meta = df_tr[['cell_id', 'inst_id', 'pert_id', 'pert_time', 'pert_dose']].copy()
         meta['pert_type'] = pt; meta['split'] = 'train'
@@ -645,9 +642,10 @@ print(f'\n  saved full_dataset_correlations.npy, full_dataset_mus.npy  shape={(t
 print(f'  saved full_dataset_predictions.csv  rows={len(meta_df)}')
 
 
-# -----------------------------------------------------------------------------
-# Per-pert-type MSE summary (train / test / full), like table3 gene script
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Per-pert-type MSE summary
+# =============================================================================
+
 print('\n' + '=' * 78)
 print('PER-PERTURBATION-TYPE MSE SUMMARY (Contextualized model)')
 print('=' * 78)
@@ -670,7 +668,6 @@ for pt in ALL_TYPES:
     print(f"{pt:<10}  {row['n_train']:>10,}  {row['n_test']:>10,}  {row['n_full']:>10,}  "
           f"{row['train_mse']:>10.4f}  {row['test_mse']:>10.4f}  {row['full_mse']:>10.4f}")
 
-# Joint (over all pert types)
 all_tr = np.concatenate([mse_per[(pt, 'train')] for pt in ALL_TYPES])
 all_te = np.concatenate([mse_per[(pt, 'test')]  for pt in ALL_TYPES])
 print('-' * 78)
