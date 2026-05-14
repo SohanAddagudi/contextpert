@@ -1,8 +1,24 @@
-# Virtual Screening on Cellular Systems
+# Cell-Level Virtual Screening
+
+Ellington, Caleb N., Sohan Addagudi, Jiaqi Wang, Benjamin J. Lengerich, and Eric P. Xing. 2026. “Cell-Level Virtual Screening.” Preprint, bioRxiv, May 13. https://doi.org/10.64898/2026.05.11.724149.
+
+```
+@misc{ellington_cell-level_2026,
+	title = {Cell-{Level} {Virtual} {Screening}},
+	url = {https://www.biorxiv.org/content/10.64898/2026.05.11.724149v1},
+	doi = {10.64898/2026.05.11.724149},
+	author = {Ellington, Caleb N. and Addagudi, Sohan and Wang, Jiaqi and Lengerich, Benjamin J. and Xing, Eric P.},
+	publisher = {bioRxiv},
+	month = may,
+	year = {2026},
+}
+```
+
+This repo contains the code to reproduce all datasets, models, and evaluations presented in the above manuscript.
+
+## Interactive Results
 
 [DTR-Bench: Drug-Gene Perturbation Visualization](https://sohanaddagudi.github.io/contextpert/dual_visualization.html)
-
-Todo: submission function intro and leaderboard tables
 
 ## Installation
 
