@@ -9,9 +9,9 @@ DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
 SPRINT_DIR = os.path.join(DATA_DIR, 'sprint')
 
 print("=" * 80)
-print("SPRINT DR-BENCH EVALUATION")
+print("SPRINT DDR-BENCH EVALUATION")
 print("=" * 80)
-print("\nThis evaluates SPRINT drug embeddings on the DR-Bench")
+print("\nThis evaluates SPRINT drug embeddings on the DDR-Bench")
 print("(drug-disease cohesion) benchmark.\n")
 
 # ============================================================================
@@ -77,10 +77,10 @@ print(f"  Unique SMILES: {pred_df['smiles'].nunique()}")
 print(f"  Embedding dimensions: {embedding_dim}")
 
 # ============================================================================
-# Run DR-Bench Evaluation
+# Run DDR-Bench Evaluation
 # ============================================================================
 print("\n" + "=" * 80)
-print("RUNNING DR-BENCH EVALUATION")
+print("RUNNING DDR-BENCH EVALUATION")
 print("=" * 80)
 
 results = submit_drug_disease_cohesion(pred_df, mode='lincs')
@@ -89,7 +89,7 @@ results = submit_drug_disease_cohesion(pred_df, mode='lincs')
 # Summary
 # ============================================================================
 print("\n" + "=" * 80)
-print("SPRINT DR-BENCH RESULTS SUMMARY")
+print("SPRINT DDR-BENCH RESULTS SUMMARY")
 print("=" * 80)
 
 k_list = [1, 5, 10, 25, 50]
