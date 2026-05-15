@@ -20,6 +20,49 @@ This repo contains the code to reproduce all datasets, models, and evaluations p
 
 [DTR-Bench: Drug-Gene Perturbation Visualization](https://sohanaddagudi.github.io/contextpert/dual_visualization.html)
 
+## Quickstart
+
+**1. Clone and install**
+
+```bash
+git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
+cd contextpert
+pip install -e Contextualized
+pip install -e .
+
+mkdir -p data
+export CONTEXTPERT_DATA_DIR=data
+rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
+```
+
+**2. Produce embeddings on the DDR-Bench molecule list**
+
+```bash
+python example_submissions/sm_cohesion_networks_submission.py
+```
+
+Baselines for comparison: `sm_cohesion_morgan_submission.py`, `sm_cohesion_expression_submission.py`, `sm_cohesion_metagenes_submission.py`, `sm_cohesion_embedding_3m_submission.py`, `sm_cohesion_random_submission.py`.
+
+**3. Run DDR-Bench**
+
+```bash
+python table_generation/sm_cohesion_bootstrap.py
+```
+
+**4. Produce embeddings on the DTR-Bench molecules and targets**
+
+```bash
+python example_submissions/drug_target_networks_submission.py
+```
+
+Baselines for comparison: `drug_target_expression_submission.py`, `drug_target_metagenes_submission.py`, `drug_target_embedding_3m_submission.py`, `drug_target_targetnetworks_submission.py`, `drug_target_random_submission.py`.
+
+**5. Run DTR-Bench**
+
+```bash
+python table_generation/drug_target_bootstrap.py
+```
+
 ## Installation
 
 ```bash
