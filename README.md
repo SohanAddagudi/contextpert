@@ -191,8 +191,6 @@ This produces `drug_embeddings.npy` and `target_embeddings.npy` in `$CONTEXTPERT
 
 ## Reproducing Figures and Tables
 
-Sections are ordered to match the manuscript. Note that two script filenames in `table_generation/` predate the paper's final numbering: `table6_DDR-Bench.py` now produces Table 7, and `table7_DTR-Bench.py` now produces Table 6.
-
 ### Table 1 (Pairwise regression MSE on context-held-out split, per perturbation type)
 
 Per-modality MSE for chemical, shRNA, over-expression, and ligand perturbations on a **context-held-out** split, comparing CellVS-Net Target and CellVS-Net Molecule against a population baseline.
