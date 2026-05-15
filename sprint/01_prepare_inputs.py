@@ -42,11 +42,11 @@ def prepare_drugs():
     print(f"  DTR-Bench pairs: {len(dtr_df):,}")
     print(f"  Unique drugs (SMILES): {dtr_df['smiles'].nunique():,}")
     
-    # Load DR-Bench ground truth
+    # Load DDR-Bench ground truth
     dr_path = os.path.join(DATA_DIR, 'opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv')
-    print(f"\nLoading DR-Bench data from: {dr_path}")
+    print(f"\nLoading DDR-Bench data from: {dr_path}")
     dr_df = pd.read_csv(dr_path)
-    print(f"  DR-Bench triples: {len(dr_df):,}")
+    print(f"  DDR-Bench triples: {len(dr_df):,}")
     print(f"  Unique drugs (SMILES): {dr_df['smiles'].nunique():,}")
     
     # Get unique drugs from both benchmarks
