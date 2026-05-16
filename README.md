@@ -22,6 +22,11 @@ This repo contains the code to reproduce all datasets, models, and evaluations p
 
 ## Quickstart
 
+Both evals score your representation against OpenTargets–LINCS ground truth. Place the following two files under `$CONTEXTPERT_DATA_DIR/opentargets/`:
+
+- `disease_drug_triples_csv/disease_drug_triples_lincs.csv` — DDR-Bench labels (`smiles`, `targets`, `diseaseId`)
+- `drug_target_pairs_csv/drug_target_pairs_lincs.csv` — DTR-Bench labels (`smiles`, `targetId`)
+
 **1. Clone and install**
 
 ```bash
@@ -29,43 +34,47 @@ git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
 cd contextpert
 pip install -e Contextualized
 pip install -e .
-```
 
-**2. Required reference data**
-
-Both evals score your representation against OpenTargets–LINCS ground truth. Place the following two files under `$CONTEXTPERT_DATA_DIR/opentargets/`:
-
-- `disease_drug_triples_csv/disease_drug_triples_lincs.csv` — DDR-Bench labels (`smiles`, `targets`, `diseaseId`)
-- `drug_target_pairs_csv/drug_target_pairs_lincs.csv` — DTR-Bench labels (`smiles`, `targetId`)
-
-Or sync the whole data folder:
-
-```bash
 mkdir -p data && export CONTEXTPERT_DATA_DIR=data
 rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
 ```
 
-**3. Submit to DDR-Bench**
+**2. Produce embeddings on the DDR-Bench molecule list**
 
-Provide a `pandas.DataFrame` with a `smiles` column and one column per embedding dimension, then call:
+```python
+import os, pandas as pd
+ref = pd.read_csv(os.path.join(os.environ['CONTEXTPERT_DATA_DIR'],
+                               'opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv'))
+smiles_list = ref['smiles'].unique()
+my_drug_df = my_model.embed(smiles_list)   # DataFrame: 'smiles' + one column per embedding dim
+```
+
+See `example_submissions/sm_cohesion_*_submission.py` for working templates (Morgan, expression, metagenes, AIDO Cell 3M, contextualized networks, random).
+
+**3. Run DDR-Bench**
 
 ```python
 from contextpert import submit_drug_disease_cohesion
 results = submit_drug_disease_cohesion(my_drug_df, mode='lincs')   # prints Hits@k, MRR@k
 ```
 
-Templates in `example_submissions/sm_cohesion_*_submission.py` show how to build `my_drug_df` from Morgan fingerprints, expression, AIDO Cell 3M embeddings, contextualized networks, or random vectors.
+**4. Produce embeddings on the DTR-Bench molecules and targets**
 
-**4. Submit to DTR-Bench**
+```python
+ref = pd.read_csv(os.path.join(os.environ['CONTEXTPERT_DATA_DIR'],
+                               'opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv'))
+my_drug_df   = my_model.embed_drugs(ref['smiles'].unique())      # DataFrame: 'smiles' + embedding cols
+my_target_df = my_model.embed_targets(ref['targetId'].unique())  # DataFrame: 'targetId' + embedding cols
+```
 
-Provide two DataFrames, one for drugs (keyed by `smiles`), one for targets (keyed by `targetId` Ensembl IDs), each with one column per embedding dimension, then call:
+See `example_submissions/drug_target_*_submission.py` for working templates.
+
+**5. Run DTR-Bench**
 
 ```python
 from contextpert import submit_drug_target_mapping
 results = submit_drug_target_mapping(my_drug_df, my_target_df, mode='lincs')  # prints AUROC, AUPRC, Hits@k
 ```
-
-Templates in `example_submissions/drug_target_*_submission.py`.
 
 ## Installation
 
