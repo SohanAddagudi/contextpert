@@ -24,7 +24,7 @@ The raw data can be found at the Gene Expression Omnibus (GEO) under accession n
 
 ### Gene Embeddings
 
-## Gene Embeddings
+#### Gene Embeddings
 
 Pretrained gene embeddings used in **CellVS-Net** can be downloaded from Zenodo and moved into /data/gene_embeddings/:
 
@@ -35,20 +35,20 @@ unzip gene_embeddings.zip
 
 These embeddings include multiple pretrained representations of genes across modalities:
 
-## AIDOcell_100M_Norman_Aligned (D=640)
+#### AIDOcell_100M_Norman_Aligned (D=640)
 Cell-contextualized gene embeddings trained on large-scale perturbation data.
 
-## AIDOdna (D=4352)
+#### AIDOdna (D=4352)
 DNA sequence-based gene embeddings.
 
-## chemberta_embeddings.npz
+#### chemberta_embeddings.npz
 Chemical representation embeddings derived from SMILES-based transformer models.
 
-## AIDOprot_seq+struct (D=1024)
+#### AIDOprot_seq+struct (D=1024)
 Protein sequence + structure-aware embeddings.
 
-## AIDOprot_mean (D=384)
+#### AIDOprot_mean (D=384)
 Mean-pooled protein embeddings.
 
-## PCA_gene_embeddings.h5ad
+#### PCA_gene_embeddings.h5ad
 PCA-reduced gene expression embedding baseline.
