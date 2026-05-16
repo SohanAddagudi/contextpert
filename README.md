@@ -131,6 +131,37 @@ For debugging, consider making a smaller version of the dataset with the first 1
 head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
 ```
 
+### Gene Embeddings
+
+#### Gene Embeddings
+
+Pretrained gene embeddings used in **CellVS-Net** can be downloaded from Zenodo and moved into /data/gene_embeddings/:
+
+```bash
+curl -L "https://zenodo.org/records/20240447/files/gene_embeddings.zip?download=1" -o gene_embeddings.zip
+unzip gene_embeddings.zip
+```
+
+These embeddings include multiple pretrained representations of genes across modalities:
+
+#### AIDOcell_100M_Norman_Aligned (D=640)
+Cell-contextualized gene embeddings trained on large-scale perturbation data.
+
+#### AIDOdna (D=4352)
+DNA sequence-based gene embeddings.
+
+#### chemberta_embeddings.npz
+Chemical representation embeddings derived from SMILES-based transformer models.
+
+#### AIDOprot_seq+struct (D=1024)
+Protein sequence + structure-aware embeddings.
+
+#### AIDOprot_mean (D=384)
+Mean-pooled protein embeddings.
+
+#### PCA_gene_embeddings.h5ad
+PCA-reduced gene expression embedding baseline.
+
 ## Baseline Representations
 
 ### Training Ridge Regression Predictors
