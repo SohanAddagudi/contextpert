@@ -29,39 +29,43 @@ git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
 cd contextpert
 pip install -e Contextualized
 pip install -e .
+```
 
-mkdir -p data
-export CONTEXTPERT_DATA_DIR=data
+**2. Required reference data**
+
+Both evals score your representation against OpenTargets–LINCS ground truth. Place the following two files under `$CONTEXTPERT_DATA_DIR/opentargets/`:
+
+- `disease_drug_triples_csv/disease_drug_triples_lincs.csv` — DDR-Bench labels (`smiles`, `targets`, `diseaseId`)
+- `drug_target_pairs_csv/drug_target_pairs_lincs.csv` — DTR-Bench labels (`smiles`, `targetId`)
+
+Or sync the whole data folder:
+
+```bash
+mkdir -p data && export CONTEXTPERT_DATA_DIR=data
 rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
 ```
 
-**2. Produce embeddings on the DDR-Bench molecule list**
+**3. Submit to DDR-Bench**
 
-```bash
-python example_submissions/sm_cohesion_networks_submission.py
+Provide a `pandas.DataFrame` with a `smiles` column and one column per embedding dimension, then call:
+
+```python
+from contextpert import submit_drug_disease_cohesion
+results = submit_drug_disease_cohesion(my_drug_df, mode='lincs')   # prints Hits@k, MRR@k
 ```
 
-Baselines for comparison: `sm_cohesion_morgan_submission.py`, `sm_cohesion_expression_submission.py`, `sm_cohesion_metagenes_submission.py`, `sm_cohesion_embedding_3m_submission.py`, `sm_cohesion_random_submission.py`.
+Templates in `example_submissions/sm_cohesion_*_submission.py` show how to build `my_drug_df` from Morgan fingerprints, expression, AIDO Cell 3M embeddings, contextualized networks, or random vectors.
 
-**3. Run DDR-Bench**
+**4. Submit to DTR-Bench**
 
-```bash
-python table_generation/sm_cohesion_bootstrap.py
+Provide two DataFrames, one for drugs (keyed by `smiles`), one for targets (keyed by `targetId` Ensembl IDs), each with one column per embedding dimension, then call:
+
+```python
+from contextpert import submit_drug_target_mapping
+results = submit_drug_target_mapping(my_drug_df, my_target_df, mode='lincs')  # prints AUROC, AUPRC, Hits@k
 ```
 
-**4. Produce embeddings on the DTR-Bench molecules and targets**
-
-```bash
-python example_submissions/drug_target_networks_submission.py
-```
-
-Baselines for comparison: `drug_target_expression_submission.py`, `drug_target_metagenes_submission.py`, `drug_target_embedding_3m_submission.py`, `drug_target_targetnetworks_submission.py`, `drug_target_random_submission.py`.
-
-**5. Run DTR-Bench**
-
-```bash
-python table_generation/drug_target_bootstrap.py
-```
+Templates in `example_submissions/drug_target_*_submission.py`.
 
 ## Installation
 
