@@ -24,34 +24,72 @@ This repo contains the code to reproduce all datasets, models, and evaluations p
 
 This section walks through running DDR-Bench (drug → disease retrieval) and DTR-Bench (drug ↔ target retrieval).
 
-### 1. Install
+### Installation
 
 ```bash
 git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
 cd contextpert
 pip install -e Contextualized
 pip install -e .
-export CONTEXTPERT_DATA_DIR=$(pwd)/data
 ```
 
-### 2. Run a working baseline end-to-end
+### Evaluate a drug representation on DDR-Bench
 
-Two self-contained example scripts ship under [`quickstart/`](quickstart/) and run without any additional data. As example submissions, we use Morgan fingerprints for DDR-Bench and random vectors for DTR-Bench:
+```python
+from contextpert.benchmarks import DDRBench
 
-```bash
-python quickstart/example_ddr.py    # DDR-Bench, Morgan fingerprints
-python quickstart/example_dtr.py    # DTR-Bench, random vectors
+def embed(smiles: str) -> np.ndarray:
+    return my_model.embed(smiles)        # any 1-D numpy array of fixed length
+
+DDRBench().evaluate(embed)               # Hits@k, MRR@k, precision@k
 ```
 
-### 3. Plug in your own model
+#### Example: Morgan fingerprint baseline
 
-Each script has an `EMBEDDING BLOCK` that can be edited. Replace what's inside so the block produces a DataFrame matching the schema below. Nothing else needs to change.
+```python
+import numpy as np
+from rdkit import Chem
+from rdkit.Chem import rdFingerprintGenerator
 
-| Script | Block | Variable | Required columns |
-| --- | --- | --- | --- |
-| `example_ddr.py` | `EMBEDDING BLOCK` | `my_preds` | `smiles` + N embedding columns |
-| `example_dtr.py` | `DRUG EMBEDDING BLOCK` | `drug_preds` | `smiles` + N embedding columns |
-| `example_dtr.py` | `TARGET EMBEDDING BLOCK` | `target_preds` | `targetId` (Ensembl gene ID) + M embedding columns |
+from contextpert.benchmarks import DDRBench
+
+morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+
+def embed(smiles: str) -> np.ndarray:
+    return np.array(morgan_gen.GetFingerprint(Chem.MolFromSmiles(smiles)))
+
+DDRBench().evaluate(embed) # Hits@10 = 0.3571, Hits@25 = 0.6071   (paper Table 3 "Fingerprint")
+```
+
+Or use built-in Morgan baseline: `DDRBench().evaluate("morgan")`.
+
+### Evaluate drug + target representations on DTR-Bench
+
+```python
+from contextpert.benchmarks import DTRBench
+
+DTRBench().evaluate(drug_embed_fn, target_embed_fn)   # AUROC, AUPRC, bidirectional Hits@k
+```
+
+#### Example: random-vector baseline
+
+```python
+import numpy as np
+
+from contextpert.benchmarks import DTRBench
+
+rng = np.random.default_rng(0)
+
+def embed_drug(smiles: str) -> np.ndarray:
+    return rng.standard_normal(100).astype(np.float32)
+
+def embed_target(target_id: str) -> np.ndarray:
+    return rng.standard_normal(100).astype(np.float32)
+
+DTRBench().evaluate(embed_drug, embed_target) # AUROC ≈ 0.5, AUPRC ≈ 0.01   (paper Table 5 "Random")
+```
+
+Or use built-in random baseline: `DTRBench().evaluate("random", "random")`.
 
 ## Installation
 
