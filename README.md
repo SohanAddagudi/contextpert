@@ -22,59 +22,36 @@ This repo contains the code to reproduce all datasets, models, and evaluations p
 
 ## Quickstart
 
-Both evals score your representation against OpenTargets–LINCS ground truth. Place the following two files under `$CONTEXTPERT_DATA_DIR/opentargets/`:
+This section walks through running DDR-Bench (drug → disease retrieval) and DTR-Bench (drug ↔ target retrieval).
 
-- `disease_drug_triples_csv/disease_drug_triples_lincs.csv` — DDR-Bench labels (`smiles`, `targets`, `diseaseId`)
-- `drug_target_pairs_csv/drug_target_pairs_lincs.csv` — DTR-Bench labels (`smiles`, `targetId`)
-
-**1. Clone and install**
+### 1. Install
 
 ```bash
 git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
 cd contextpert
 pip install -e Contextualized
 pip install -e .
-
-mkdir -p data && export CONTEXTPERT_DATA_DIR=data
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
+export CONTEXTPERT_DATA_DIR=$(pwd)/data
 ```
 
-**2. Produce embeddings on the DDR-Bench molecule list**
+### 2. Run a working baseline end-to-end
 
-```python
-import os, pandas as pd
-ref = pd.read_csv(os.path.join(os.environ['CONTEXTPERT_DATA_DIR'],
-                               'opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv'))
-smiles_list = ref['smiles'].unique()
-my_drug_df = my_model.embed(smiles_list)   # DataFrame: 'smiles' + one column per embedding dim
+Two self-contained example scripts ship under [`quickstart/`](quickstart/) and run without any additional data. As example submissions, we use Morgan fingerprints for DDR-Bench and random vectors for DTR-Bench:
+
+```bash
+python quickstart/example_ddr.py    # DDR-Bench, Morgan fingerprints
+python quickstart/example_dtr.py    # DTR-Bench, random vectors
 ```
 
-See `example_submissions/sm_cohesion_*_submission.py` for working templates (Morgan, expression, metagenes, AIDO Cell 3M, contextualized networks, random).
+### 3. Plug in your own model
 
-**3. Run DDR-Bench**
+Each script has an `EMBEDDING BLOCK` that can be edited. Replace what's inside so the block produces a DataFrame matching the schema below. Nothing else needs to change.
 
-```python
-from contextpert import submit_drug_disease_cohesion
-results = submit_drug_disease_cohesion(my_drug_df, mode='lincs')   # prints Hits@k, MRR@k
-```
-
-**4. Produce embeddings on the DTR-Bench molecules and targets**
-
-```python
-ref = pd.read_csv(os.path.join(os.environ['CONTEXTPERT_DATA_DIR'],
-                               'opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv'))
-my_drug_df   = my_model.embed_drugs(ref['smiles'].unique())      # DataFrame: 'smiles' + embedding cols
-my_target_df = my_model.embed_targets(ref['targetId'].unique())  # DataFrame: 'targetId' + embedding cols
-```
-
-See `example_submissions/drug_target_*_submission.py` for working templates.
-
-**5. Run DTR-Bench**
-
-```python
-from contextpert import submit_drug_target_mapping
-results = submit_drug_target_mapping(my_drug_df, my_target_df, mode='lincs')  # prints AUROC, AUPRC, Hits@k
-```
+| Script | Block | Variable | Required columns |
+| --- | --- | --- | --- |
+| `example_ddr.py` | `EMBEDDING BLOCK` | `my_preds` | `smiles` + N embedding columns |
+| `example_dtr.py` | `DRUG EMBEDDING BLOCK` | `drug_preds` | `smiles` + N embedding columns |
+| `example_dtr.py` | `TARGET EMBEDDING BLOCK` | `target_preds` | `targetId` (Ensembl gene ID) + M embedding columns |
 
 ## Installation
 
