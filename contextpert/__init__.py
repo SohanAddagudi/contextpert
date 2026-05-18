@@ -1,5 +1,7 @@
 """
-Benchmarks for cell-level virtual screening.
+Contextpert: Context-aware Perturbation Analysis
+
+A package for evaluating molecular representations using disease cohesion metrics.
 """
 import os as _os
 from importlib.resources import files as _files
