@@ -1,4 +1,3 @@
-import os
 import pandas as pd
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -7,8 +6,17 @@ from collections import defaultdict
 import warnings
 
 from contextpert.utils import canonicalize_smiles
+from contextpert.evaluate.data import dtr_ref_path
 
-DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
+
+def dtr_smiles(mode="lincs"):
+    """Unique SMILES to embed for DTR-Bench (drug side)."""
+    return pd.read_csv(dtr_ref_path(mode))["smiles"].unique().tolist()
+
+
+def dtr_targets(mode="lincs"):
+    """Unique Ensembl gene IDs to embed for DTR-Bench (target side)."""
+    return pd.read_csv(dtr_ref_path(mode))["targetId"].unique().tolist()
 
 
 def evaluate_drug_target_mapping(drug_repr_df, target_repr_df, target_pairs_df, k_list=[1, 5, 10, 50]):
@@ -296,15 +304,7 @@ def submit_drug_target_mapping(drug_repr_df, target_repr_df, k_list=[1, 5, 10, 5
         dict: Evaluation metrics
     """
     # Load drug-target pairs ground truth
-    if mode == 'lincs':
-        ref_filename = 'drug_target_pairs_lincs.csv'
-    elif mode == 'full':
-        ref_filename = 'drug_target_pairs.csv'
-    else:
-        raise ValueError(f"Invalid mode: {mode}. Must be 'lincs' or 'full'")
-
-    pairs_path = os.path.join(DATA_DIR, 'opentargets/drug_target_pairs_csv', ref_filename)
-    target_pairs_df = pd.read_csv(pairs_path)
+    target_pairs_df = pd.read_csv(dtr_ref_path(mode))
 
     # Keep only relevant columns
     target_pairs_df = target_pairs_df[['smiles', 'targetId']].drop_duplicates()

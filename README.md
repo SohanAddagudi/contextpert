@@ -41,8 +41,7 @@ pip install -e .
 import numpy as np
 import pandas as pd
 
-from contextpert import submit_drug_disease_cohesion
-from contextpert.data import ddr_smiles
+from contextpert import submit_drug_disease_cohesion, ddr_smiles
 
 # The benchmark tells you which drugs need embeddings.
 smiles = ddr_smiles()
@@ -69,8 +68,7 @@ DTR-Bench takes two DataFrames: a drug table keyed by `smiles`, and a target tab
 import numpy as np
 import pandas as pd
 
-from contextpert import submit_drug_target_mapping
-from contextpert.data import dtr_smiles, dtr_targets
+from contextpert import submit_drug_target_mapping, dtr_smiles, dtr_targets
 
 smiles = dtr_smiles()
 targets = dtr_targets()
