@@ -1,46 +1,64 @@
 #!/usr/bin/env python
 """
-Copy DDR/DTR-Bench labels from the local data dir into the package source tree.
+Copy DDR/DTR-Bench Labels into Package Source
 
-Run this as the final step of the data-processing pipeline (after
-``03_1_create_lincs_disease_eval.py`` and ``03_2_create_lincs_drug_target_eval.py``).
-It refreshes the four CSVs that ship inside ``contextpert/data/opentargets/`` so
-the next ``pip install`` of the package picks them up.
+Copies the four label CSVs from `${CONTEXTPERT_DATA_DIR}/opentargets/` into
+the `contextpert` package source tree at `<repo>/contextpert/data/opentargets/`.
+The package only ever reads these bundled files at runtime, so end users do
+not need to set CONTEXTPERT_DATA_DIR to evaluate against the benchmarks. Run
+this whenever the upstream labels are regenerated.
 
-The ``contextpert`` Python package only ever reads these bundled files. Users
-who only want to evaluate against the benchmarks therefore do not need to
-reproduce any of the upstream data-download pipeline; they install the package
-and run the evaluators directly. This script is the bridge between the two
-worlds — it exists for maintainers regenerating the labels.
+Input:
+    ${CONTEXTPERT_DATA_DIR}/opentargets/disease_drug_triples_csv/disease_drug_triples.csv
+    ${CONTEXTPERT_DATA_DIR}/opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv
+    ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs.csv
+    ${CONTEXTPERT_DATA_DIR}/opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv
 
-Input  : ``${CONTEXTPERT_DATA_DIR}/opentargets/...``
-Output : ``<repo>/contextpert/data/opentargets/...``
+Output:
+    <repo>/contextpert/data/opentargets/disease_drug_triples_csv/disease_drug_triples.csv
+    <repo>/contextpert/data/opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv
+    <repo>/contextpert/data/opentargets/drug_target_pairs_csv/drug_target_pairs.csv
+    <repo>/contextpert/data/opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv
 """
+
 import os
 import shutil
 from pathlib import Path
 
-DATA_DIR = Path(os.environ["CONTEXTPERT_DATA_DIR"])
-PKG_DATA = Path(__file__).resolve().parent.parent / "contextpert" / "data"
+DATA_DIR = os.getenv('CONTEXTPERT_DATA_DIR')
+PKG_DATA_DIR = Path(__file__).resolve().parent.parent / 'contextpert' / 'data'
 
-LABEL_FILES = [
-    ("opentargets", "disease_drug_triples_csv", "disease_drug_triples_lincs.csv"),
-    ("opentargets", "disease_drug_triples_csv", "disease_drug_triples.csv"),
-    ("opentargets", "drug_target_pairs_csv",    "drug_target_pairs_lincs.csv"),
-    ("opentargets", "drug_target_pairs_csv",    "drug_target_pairs.csv"),
+print("=" * 80)
+print("COPYING DDR/DTR-BENCH LABELS INTO PACKAGE SOURCE")
+print("=" * 80)
+
+label_files = [
+    ('opentargets', 'disease_drug_triples_csv', 'disease_drug_triples.csv'),
+    ('opentargets', 'disease_drug_triples_csv', 'disease_drug_triples_lincs.csv'),
+    ('opentargets', 'drug_target_pairs_csv',    'drug_target_pairs.csv'),
+    ('opentargets', 'drug_target_pairs_csv',    'drug_target_pairs_lincs.csv'),
 ]
 
+print(f"\nSource: {DATA_DIR}")
+print(f"Target: {PKG_DATA_DIR}")
+print(f"\nFiles to copy: {len(label_files)}")
 
-def main():
-    for parts in LABEL_FILES:
-        src = DATA_DIR.joinpath(*parts)
-        dst = PKG_DATA.joinpath(*parts)
-        if not src.exists():
-            raise FileNotFoundError(f"Expected label file missing: {src}")
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
-        print(f"Copied {src} -> {dst}")
+for parts in label_files:
+    src = os.path.join(DATA_DIR, *parts)
+    dst = PKG_DATA_DIR.joinpath(*parts)
 
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"Expected label file missing: {src}")
 
-if __name__ == "__main__":
-    main()
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    print(f"\nCopied: {parts[-1]}")
+    print(f"  From: {src}")
+    print(f"  To:   {dst}")
+    print(f"  Size: {dst.stat().st_size:,} bytes")
+
+print("\n" + "=" * 80)
+print("LABEL COPY COMPLETE")
+print("=" * 80)
+print(f"\n{len(label_files)} files copied into {PKG_DATA_DIR}")
+print("\n✓ Done")
