@@ -35,61 +35,66 @@ pip install -e .
 
 ### Evaluate a drug representation on DDR-Bench
 
-```python
-from contextpert.benchmarks import DDRBench
-
-def embed(smiles: str) -> np.ndarray:
-    return my_model.embed(smiles)        # any 1-D numpy array of fixed length
-
-DDRBench().evaluate(embed)               # Hits@k, MRR@k, precision@k
-```
-
-#### Example: Morgan fingerprint baseline
+`contextpert.data.ddr_smiles()` returns the 38 SMILES the benchmark expects. Compute your embedding for each, wrap in a DataFrame with a `smiles` column, and submit. Example using Morgan fingerprints:
 
 ```python
 import numpy as np
-from rdkit import Chem
-from rdkit.Chem import rdFingerprintGenerator
+import pandas as pd
 
-from contextpert.benchmarks import DDRBench
+from contextpert import submit_drug_disease_cohesion
+from contextpert.data import ddr_smiles
 
-morgan_gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+# The benchmark tells you which drugs need embeddings.
+smiles = ddr_smiles()
 
-def embed(smiles: str) -> np.ndarray:
-    return np.array(morgan_gen.GetFingerprint(Chem.MolFromSmiles(smiles)))
+# Replace this block with embeddings from your own model.
+rng = np.random.default_rng(0)
+embeddings = rng.standard_normal((len(smiles), 128))
 
-DDRBench().evaluate(embed) # Hits@10 = 0.3571, Hits@25 = 0.6071   (paper Table 3 "Fingerprint")
+# Submit a table keyed by SMILES.
+drug_embeddings = pd.DataFrame(
+    embeddings,
+    columns=[f"embedding_{i}" for i in range(embeddings.shape[1])],
+)
+drug_embeddings["smiles"] = smiles
+
+results = submit_drug_disease_cohesion(drug_embeddings)
 ```
-
-Or use built-in Morgan baseline: `DDRBench().evaluate("morgan")`.
 
 ### Evaluate drug + target representations on DTR-Bench
 
-```python
-from contextpert.benchmarks import DTRBench
-
-DTRBench().evaluate(drug_embed_fn, target_embed_fn)   # AUROC, AUPRC, bidirectional Hits@k
-```
-
-#### Example: random-vector baseline
+DTR-Bench takes two DataFrames: a drug table keyed by `smiles`, and a target table keyed by `targetId` (Ensembl gene IDs). Example using random vectors:
 
 ```python
 import numpy as np
+import pandas as pd
 
-from contextpert.benchmarks import DTRBench
+from contextpert import submit_drug_target_mapping
+from contextpert.data import dtr_smiles, dtr_targets
+
+smiles = dtr_smiles()
+targets = dtr_targets()
 
 rng = np.random.default_rng(0)
 
-def embed_drug(smiles: str) -> np.ndarray:
-    return rng.standard_normal(100).astype(np.float32)
+# Replace these two blocks with embeddings from your own model.
+drug_embeddings_array = rng.standard_normal((len(smiles), 128))
+target_embeddings_array = rng.standard_normal((len(targets), 128))
 
-def embed_target(target_id: str) -> np.ndarray:
-    return rng.standard_normal(100).astype(np.float32)
+drug_embeddings = pd.DataFrame(
+    drug_embeddings_array,
+    columns=[f"drug_embedding_{i}" for i in range(drug_embeddings_array.shape[1])],
+)
+drug_embeddings["smiles"] = smiles
 
-DTRBench().evaluate(embed_drug, embed_target) # AUROC ≈ 0.5, AUPRC ≈ 0.01   (paper Table 5 "Random")
+target_embeddings = pd.DataFrame(
+    target_embeddings_array,
+    columns=[f"target_embedding_{i}" for i in range(target_embeddings_array.shape[1])],
+)
+target_embeddings["targetId"] = targets
+
+results = submit_drug_target_mapping(drug_embeddings, target_embeddings)
 ```
-
-Or use built-in random baseline: `DTRBench().evaluate("random", "random")`.
 
 ## Installation
 
