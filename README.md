@@ -34,7 +34,7 @@ pip install -e .
 
 ### Evaluate a drug representation on DDR-Bench
 
-`contextpert.data.ddr_smiles()` returns the 38 SMILES the benchmark expects. Compute your embedding for each, wrap in a DataFrame with a `smiles` column, and submit. Example using Morgan fingerprints:
+`contextpert.data.ddr_smiles()` returns the SMILES the benchmark expects. Compute your embedding for each, wrap in a DataFrame with a `smiles` column, and submit. Example using Morgan fingerprints:
 
 ```python
 import numpy as np
