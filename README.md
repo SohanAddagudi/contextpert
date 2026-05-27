@@ -27,9 +27,8 @@ This section walks through running DDR-Bench (drug → disease retrieval) and DT
 ### Installation
 
 ```bash
-git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
+git clone https://github.com/SohanAddagudi/contextpert.git
 cd contextpert
-pip install -e Contextualized
 pip install -e .
 ```
 
