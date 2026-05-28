@@ -124,19 +124,10 @@ export CONTEXTPERT_DATA_DIR=data
 ```
 
 ### Create the Dataset from Scratch
-Follow instructions in `data_download/README.md` to prepare the data from original sources.
+Follow instructions in `data_download/README.md` to prepare the data from original sources for training.
 
-To download preprocessed data, simply run:
-```bash
-mkdir data
-export CONTEXTPERT_DATA_DIR=data  # or your data path
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
-```
-
-For debugging, consider making a smaller version of the dataset with the first 1000 rows
-```bash
-head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
-```
+For running evals, all data and labels are self-contained in this repo.
+See the quickstart above for loading and evaluating new methods.
 
 ### Download Precomputed Gene Embeddings
 
