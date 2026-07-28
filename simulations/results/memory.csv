@@ -1,0 +1,13 @@
+estimator,p,batch,pairs,peak_rss_mb,ms,status
+exact,512,1,,680.9,883.5,ok
+marginal,512,1,4096,607.1,812.7,ok
+exact,1024,1,,898.1,1142.4,ok
+marginal,1024,1,4096,607.1,810.0,ok
+exact,2048,1,,1791.1,2060.5,ok
+marginal,2048,1,4096,607.1,787.3,ok
+exact,4096,1,,5088.9,6128.1,ok
+marginal,4096,1,4096,607.0,796.9,ok
+exact,8192,1,,,,oom
+marginal,8192,1,4096,604.9,2043.5,ok
+exact,16384,1,,,,oom
+marginal,16384,1,4096,608.8,835.2,ok
