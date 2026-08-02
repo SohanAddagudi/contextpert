@@ -4,7 +4,6 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, roc_curve
 from collections import defaultdict
-import warnings
 
 from contextpert.utils import canonicalize_smiles
 from contextpert.evaluate.data import dtr_ref_path
@@ -46,19 +45,11 @@ def evaluate_drug_target_mapping(drug_repr_df, target_repr_df, target_pairs_df, 
     missing_drugs = target_pairs_df[~target_pairs_df['smiles'].isin(drug_repr_df['smiles'])]
     missing_targets = target_pairs_df[~target_pairs_df['targetId'].isin(target_repr_df['targetId'])]
 
-    if not missing_drugs.empty:
-        warnings.warn(f"{len(missing_drugs)} drug-target pairs have drugs missing from drug_repr_df")
-        target_pairs_df = target_pairs_df[target_pairs_df['smiles'].isin(drug_repr_df['smiles'])]
-
-    if not missing_targets.empty:
-        warnings.warn(f"{len(missing_targets)} drug-target pairs have targets missing from target_repr_df")
-        target_pairs_df = target_pairs_df[target_pairs_df['targetId'].isin(target_repr_df['targetId'])]
-
-    assert missing_drugs.empty, f"Failure: {len(missing_drugs)} SMILES in target_pairs_df are missing from drug_repr_df: {missing_smiles['smiles'].tolist()}"
+    assert missing_drugs.empty, f"Failure: {len(missing_drugs)} SMILES in target_pairs_df are missing from drug_repr_df: {missing_drugs['smiles'].tolist()}"
     assert missing_targets.empty, f"Failure: {len(missing_targets)} genes in target_pairs_df are missing from target_repr_df: {missing_targets['targetId'].tolist()}"
 
     if len(target_pairs_df) == 0:
-        raise ValueError("No valid drug-target pairs after filtering. Cannot evaluate.")
+        raise ValueError("No drug-target pairs to evaluate.")
 
     print(f"Evaluating {len(target_pairs_df)} drug-target pairs")
     print(f"  Unique drugs: {target_pairs_df['smiles'].nunique()}")
