@@ -4,11 +4,19 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, roc_curve
 from collections import defaultdict
-import warnings
 
 from contextpert.utils import canonicalize_smiles
+from contextpert.evaluate.data import dtr_ref_path
 
-DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
+
+def dtr_smiles(mode="lincs"):
+    """Unique SMILES to embed for DTR-Bench (drug side)."""
+    return pd.read_csv(dtr_ref_path(mode))["smiles"].unique().tolist()
+
+
+def dtr_targets(mode="lincs"):
+    """Unique Ensembl gene IDs to embed for DTR-Bench (target side)."""
+    return pd.read_csv(dtr_ref_path(mode))["targetId"].unique().tolist()
 
 
 def evaluate_drug_target_mapping(drug_repr_df, target_repr_df, target_pairs_df, k_list=[1, 5, 10, 50]):
@@ -37,19 +45,11 @@ def evaluate_drug_target_mapping(drug_repr_df, target_repr_df, target_pairs_df, 
     missing_drugs = target_pairs_df[~target_pairs_df['smiles'].isin(drug_repr_df['smiles'])]
     missing_targets = target_pairs_df[~target_pairs_df['targetId'].isin(target_repr_df['targetId'])]
 
-    if not missing_drugs.empty:
-        warnings.warn(f"{len(missing_drugs)} drug-target pairs have drugs missing from drug_repr_df")
-        target_pairs_df = target_pairs_df[target_pairs_df['smiles'].isin(drug_repr_df['smiles'])]
-
-    if not missing_targets.empty:
-        warnings.warn(f"{len(missing_targets)} drug-target pairs have targets missing from target_repr_df")
-        target_pairs_df = target_pairs_df[target_pairs_df['targetId'].isin(target_repr_df['targetId'])]
-
-    assert missing_drugs.empty, f"Failure: {len(missing_drugs)} SMILES in target_pairs_df are missing from drug_repr_df: {missing_smiles['smiles'].tolist()}"
+    assert missing_drugs.empty, f"Failure: {len(missing_drugs)} SMILES in target_pairs_df are missing from drug_repr_df: {missing_drugs['smiles'].tolist()}"
     assert missing_targets.empty, f"Failure: {len(missing_targets)} genes in target_pairs_df are missing from target_repr_df: {missing_targets['targetId'].tolist()}"
 
     if len(target_pairs_df) == 0:
-        raise ValueError("No valid drug-target pairs after filtering. Cannot evaluate.")
+        raise ValueError("No drug-target pairs to evaluate.")
 
     print(f"Evaluating {len(target_pairs_df)} drug-target pairs")
     print(f"  Unique drugs: {target_pairs_df['smiles'].nunique()}")
@@ -296,15 +296,7 @@ def submit_drug_target_mapping(drug_repr_df, target_repr_df, k_list=[1, 5, 10, 5
         dict: Evaluation metrics
     """
     # Load drug-target pairs ground truth
-    if mode == 'lincs':
-        ref_filename = 'drug_target_pairs_lincs.csv'
-    elif mode == 'full':
-        ref_filename = 'drug_target_pairs.csv'
-    else:
-        raise ValueError(f"Invalid mode: {mode}. Must be 'lincs' or 'full'")
-
-    pairs_path = os.path.join(DATA_DIR, 'opentargets/drug_target_pairs_csv', ref_filename)
-    target_pairs_df = pd.read_csv(pairs_path)
+    target_pairs_df = pd.read_csv(dtr_ref_path(mode))
 
     # Keep only relevant columns
     target_pairs_df = target_pairs_df[['smiles', 'targetId']].drop_duplicates()

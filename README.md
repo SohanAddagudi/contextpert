@@ -20,63 +20,88 @@ This repo contains the code to reproduce all datasets, models, and evaluations p
 
 [DTR-Bench: Drug-Gene Perturbation Visualization](https://sohanaddagudi.github.io/contextpert/dual_visualization.html)
 
-## Quickstart
+## Evals Quickstart
 
-Both evals score your representation against OpenTargets–LINCS ground truth. Place the following two files under `$CONTEXTPERT_DATA_DIR/opentargets/`:
+This section walks through running DDR-Bench (drug → disease retrieval) and DTR-Bench (drug ↔ target retrieval) on new methods.
 
-- `disease_drug_triples_csv/disease_drug_triples_lincs.csv` — DDR-Bench labels (`smiles`, `targets`, `diseaseId`)
-- `drug_target_pairs_csv/drug_target_pairs_lincs.csv` — DTR-Bench labels (`smiles`, `targetId`)
-
-**1. Clone and install**
+### Installation
 
 ```bash
-git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
+git clone https://github.com/SohanAddagudi/contextpert.git
 cd contextpert
-pip install -e Contextualized
 pip install -e .
-
-mkdir -p data && export CONTEXTPERT_DATA_DIR=data
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
 ```
 
-**2. Produce embeddings on the DDR-Bench molecule list**
+### Evaluate a drug representation on DDR-Bench
+
+`contextpert.data.ddr_smiles()` returns the SMILES the benchmark expects. Compute your embedding for each, wrap in a DataFrame with a `smiles` column, and submit. Example using Morgan fingerprints:
 
 ```python
-import os, pandas as pd
-ref = pd.read_csv(os.path.join(os.environ['CONTEXTPERT_DATA_DIR'],
-                               'opentargets/disease_drug_triples_csv/disease_drug_triples_lincs.csv'))
-smiles_list = ref['smiles'].unique()
-my_drug_df = my_model.embed(smiles_list)   # DataFrame: 'smiles' + one column per embedding dim
+import numpy as np
+import pandas as pd
+
+from contextpert import submit_drug_disease_cohesion, ddr_smiles
+
+# The benchmark tells you which drugs need embeddings.
+smiles = ddr_smiles()
+
+# Replace this block with embeddings from your own model.
+rng = np.random.default_rng(0)
+embeddings = rng.standard_normal((len(smiles), 128))
+
+# Submit a table keyed by SMILES.
+drug_embeddings = pd.DataFrame(
+    embeddings,
+    columns=[f"embedding_{i}" for i in range(embeddings.shape[1])],
+)
+drug_embeddings["smiles"] = smiles
+
+results = submit_drug_disease_cohesion(drug_embeddings)
 ```
 
-See `example_submissions/sm_cohesion_*_submission.py` for working templates (Morgan, expression, metagenes, AIDO Cell 3M, contextualized networks, random).
+### Evaluate drug + target representations on DTR-Bench
 
-**3. Run DDR-Bench**
+DTR-Bench takes two DataFrames: a drug table keyed by `smiles`, and a target table keyed by `targetId` (Ensembl gene IDs). Example using random vectors:
 
 ```python
-from contextpert import submit_drug_disease_cohesion
-results = submit_drug_disease_cohesion(my_drug_df, mode='lincs')   # prints Hits@k, MRR@k
+import numpy as np
+import pandas as pd
+
+from contextpert import submit_drug_target_mapping, dtr_smiles, dtr_targets
+
+smiles = dtr_smiles()
+targets = dtr_targets()
+
+rng = np.random.default_rng(0)
+
+# Replace these two blocks with embeddings from your own model.
+drug_embeddings_array = rng.standard_normal((len(smiles), 128))
+target_embeddings_array = rng.standard_normal((len(targets), 128))
+
+drug_embeddings = pd.DataFrame(
+    drug_embeddings_array,
+    columns=[f"drug_embedding_{i}" for i in range(drug_embeddings_array.shape[1])],
+)
+drug_embeddings["smiles"] = smiles
+
+target_embeddings = pd.DataFrame(
+    target_embeddings_array,
+    columns=[f"target_embedding_{i}" for i in range(target_embeddings_array.shape[1])],
+)
+target_embeddings["targetId"] = targets
+
+results = submit_drug_target_mapping(drug_embeddings, target_embeddings)
 ```
 
-**4. Produce embeddings on the DTR-Bench molecules and targets**
+## CellVS-Net Quickstart
 
-```python
-ref = pd.read_csv(os.path.join(os.environ['CONTEXTPERT_DATA_DIR'],
-                               'opentargets/drug_target_pairs_csv/drug_target_pairs_lincs.csv'))
-my_drug_df   = my_model.embed_drugs(ref['smiles'].unique())      # DataFrame: 'smiles' + embedding cols
-my_target_df = my_model.embed_targets(ref['targetId'].unique())  # DataFrame: 'targetId' + embedding cols
-```
+Generating context-specific gene networks for new celltypes and perturbations. Coming soon!
 
-See `example_submissions/drug_target_*_submission.py` for working templates.
+# Reproducing Results
 
-**5. Run DTR-Bench**
+## Data Download
 
-```python
-from contextpert import submit_drug_target_mapping
-results = submit_drug_target_mapping(my_drug_df, my_target_df, mode='lincs')  # prints AUROC, AUPRC, Hits@k
-```
-
-## Installation
+Installation
 
 ```bash
 git clone --recurse-submodules https://github.com/SohanAddagudi/contextpert.git
@@ -91,11 +116,6 @@ Verify installation by running:
 python test_installation.py
 ```
 
-which should produce a test loss on a dummy dataset.
-
-## Running Experiments
-
-### Recreating Datasets
 Create a data directory to store shared data files.
 
 ```bash
@@ -103,66 +123,68 @@ mkdir data
 export CONTEXTPERT_DATA_DIR=data
 ```
 
-Set up rclone
-```bash
-conda install conda-forge::rclone
-rclone config
-# Follow prompts to set up Box remote
-```
+### Create the Dataset from Scratch
+Follow instructions in `data_download/README.md` to prepare the data from original sources for training.
 
-Sync this with the remote data repository to push or pull any changes to data, results, or other large files. 
-Run this at the start and end of your work session to keep everything up to date.
-```bash
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
-```
+For running evals, all data and labels are self-contained in this repo.
+See the quickstart above for loading and evaluating new methods.
 
-## Create the Dataset from Scratch
-Follow instructions in `data_download/README.md` to prepare the data from original sources.
+### Download Precomputed Gene Embeddings
 
-To download preprocessed data, simply run:
-```bash
-mkdir data
-export CONTEXTPERT_DATA_DIR=data  # or your data path
-rclone bisync box:/Contextualized\ Perturbation\ Modeling $CONTEXTPERT_DATA_DIR -v
-```
+Gene embeddings are used by CellVS-Net and baseline methods as inputs representing perturbation targets.
 
-For debugging, consider making a smaller version of the dataset with the first 1000 rows
-```bash
-head -n 1000 data/full_lincs.csv > data/full_lincs_head.csv
-```
-
-### Gene Embeddings
-
-#### Gene Embeddings
-
-Pretrained gene embeddings used in **CellVS-Net** can be downloaded from Zenodo and moved into /data/gene_embeddings/:
+For convenience, these can be downloaded from Zenodo and moved into /data/gene_embeddings/:
 
 ```bash
 curl -L "https://zenodo.org/records/20240447/files/gene_embeddings.zip?download=1" -o gene_embeddings.zip
 unzip gene_embeddings.zip
 ```
 
-These embeddings include multiple pretrained representations of genes across modalities:
+This includes
+- `AIDOcell_100M_Norman_Aligned (D=640)`: Single cell expression-based gene embeddings from AIDO.Cell on the Norman et al. 2019 Perturb-seq data.
+- `AIDOdna (D=4352)`: Sequence-based gene embeddings from AIDO.DNA
+- `chemberta_embeddings.npz`: Chemical embeddings derived from ChemBERTa
+- `AIDOprot_seq+struct (D=1024)`: Protein sequence + structure embeddings from AIDO.ProteinRAG.
+- `AIDOprot_mean (D=384)`: Protein sequence embeddings from AIDO.Protein, mean-pooled.
+- `PCA_gene_embeddings.h5ad`: Single cell expression-based gene embeddings from PCA.
 
-#### AIDOcell_100M_Norman_Aligned (D=640)
-Cell-contextualized gene embeddings trained on large-scale perturbation data.
+## Training CellVS-Net
 
-#### AIDOdna (D=4352)
-DNA sequence-based gene embeddings.
+### Table 1 (Pairwise regression MSE on context-held-out split, per perturbation type)
 
-#### chemberta_embeddings.npz
-Chemical representation embeddings derived from SMILES-based transformer models.
+Per-modality MSE for chemical, shRNA, over-expression, and ligand perturbations on a **context-held-out** split, comparing CellVS-Net Target and CellVS-Net Molecule against a population baseline.
 
-#### AIDOprot_seq+struct (D=1024)
-Protein sequence + structure-aware embeddings.
+The following scripts correspond to the different context-representation settings used in Table 1:
 
-#### AIDOprot_mean (D=384)
-Mean-pooled protein embeddings.
+- `table3_cellvsnet_molecule_chemberta.py`
+  Uses **ChemBERTa molecular embeddings** as the perturbation context (CellVS-Net Molecule).
 
-#### PCA_gene_embeddings.h5ad
-PCA-reduced gene expression embedding baseline.
+- `table3_cellvsnet_molecule_fingerprint.py`
+  Uses **Morgan fingerprint representations** as the perturbation context.
 
-## Baseline Representations
+- `table_3_cellvsnet_gene.py`
+  Uses **target-based context representations** (CellVS-Net Target).
+
+The `table_3_cellvsnet_gene.py` script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
+
+- `trt_cp` – chemical perturbations
+- `trt_sh` – shRNA perturbations
+- `trt_oe` – overexpression perturbations
+- `trt_lig` – ligand perturbations
+
+`table_3_cellvsnet_gene.py` is preset with the target representations used in Table 1.
+
+### Table 2 (CellVS-Net joint vs separate training across modalities)
+
+Network prediction MSE comparing per-modality (separate) CellVS-Net training against a single joint encoder trained on the union of all four perturbation modalities (chemical, shRNA, over-expression, ligand). Scripts live in `joint_training/`:
+
+```bash
+python joint_training/joint_train.py            # train the joint CellVS-Net encoder
+python joint_training/sm_cohesion_joint.py      # evaluate joint model on DDR-Bench
+python joint_training/drug_target_joint.py      # evaluate joint model on DTR-Bench
+```
+
+## Running Baseline Models
 
 ### Training Ridge Regression Predictors
 
@@ -233,43 +255,7 @@ bash sprint/02_run_sprint_embed.sh
 
 This produces `drug_embeddings.npy` and `target_embeddings.npy` in `$CONTEXTPERT_DATA_DIR/sprint/`.
 
-## Reproducing Figures and Tables
-
-### Table 1 (Pairwise regression MSE on context-held-out split, per perturbation type)
-
-Per-modality MSE for chemical, shRNA, over-expression, and ligand perturbations on a **context-held-out** split, comparing CellVS-Net Target and CellVS-Net Molecule against a population baseline.
-
-The following scripts correspond to the different context-representation settings used in Table 1:
-
-- `table3_cellvsnet_molecule_chemberta.py`
-  Uses **ChemBERTa molecular embeddings** as the perturbation context (CellVS-Net Molecule).
-
-- `table3_cellvsnet_molecule_fingerprint.py`
-  Uses **Morgan fingerprint representations** as the perturbation context.
-
-- `table_3_cellvsnet_gene.py`
-  Uses **target-based context representations** (CellVS-Net Target).
-
-#### Running Table 1 Experiments
-
-The `table_3_cellvsnet_gene.py` script should be run **for all perturbation types** by setting `pert_to_fit_on` to one of:
-
-- `trt_cp` – chemical perturbations
-- `trt_sh` – shRNA perturbations
-- `trt_oe` – overexpression perturbations
-- `trt_lig` – ligand perturbations
-
-`table_3_cellvsnet_gene.py` is preset with the target representations used in Table 1.
-
-### Table 2 (CellVS-Net joint vs separate training across modalities)
-
-Network prediction MSE comparing per-modality (separate) CellVS-Net training against a single joint encoder trained on the union of all four perturbation modalities (chemical, shRNA, over-expression, ligand). Scripts live in `joint_training/`:
-
-```bash
-python joint_training/joint_train.py            # train the joint CellVS-Net encoder
-python joint_training/sm_cohesion_joint.py      # evaluate joint model on DDR-Bench
-python joint_training/drug_target_joint.py      # evaluate joint model on DTR-Bench
-```
+## Reproducing DDR-Bench and DTR-Bench Results
 
 ### Table 3 (DDR-Bench: Disease Retrieval — Predicting Disease Indications for Drugs with Novel Targets)
 
@@ -328,6 +314,8 @@ This script will run and perform bootstraps and signifiance testing for all repr
 python drug_target_bootstrap.py
 ```
 
+## Reproducing Extended Results
+
 ### Table 6 (DTR-Bench summary statistics)
 
 Global summary statistics for the DTR benchmark — dataset size and composition across drugs, targets, perturbations, and evaluation pairs.
@@ -340,11 +328,9 @@ Per-disease coverage statistics for DDR-Bench — number of distinct target sign
 
 - `table_generation/table6_DDR-Bench.py` *(filename retains `table6_`; produces paper Table 7)*
 
-### Appendix tables
+### Table 14 (Sample-held-out control-network MSE, Appendix F.5.1)
 
-Selected appendix material reproduces from existing scripts:
-
-**Table 14 (Sample-held-out control-network MSE, Appendix F.5.1)** — MSE of inferred networks on a **sample-held-out split** using **control perturbation measurements** (`ctl_vehicle`, `ctl_vector`, `ctl_untrt`).
+MSE of inferred networks on a **sample-held-out split** using **control perturbation measurements** (`ctl_vehicle`, `ctl_vector`, `ctl_untrt`).
 
 ```bash
 cd table_generation
@@ -357,7 +343,9 @@ python table1_controlnetworks.py aggregate
 
 Reported MSEs: Train (Full), Test (Full), Test (`n_c > 3`), Test (`n_c <= 3`).
 
-**Table 15 (Continuous-context perturbed-expression MSE, Appendix F.5.2)** — network inference on **perturbed expression** with one-hot vs continuous (dose/time/cell-type) context encodings.
+### Table 15 (Continuous-context perturbed-expression MSE, Appendix F.5.2)
+
+network inference on **perturbed expression** with one-hot vs continuous (dose/time/cell-type) context encodings.
 
 ```bash
 cd table_generation

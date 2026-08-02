@@ -7,8 +7,12 @@ from collections import defaultdict
 import warnings
 
 from contextpert.utils import canonicalize_smiles
+from contextpert.evaluate.data import ddr_ref_path
 
-DATA_DIR = os.environ['CONTEXTPERT_DATA_DIR']
+
+def ddr_smiles(mode="lincs"):
+    """Unique SMILES to embed for DDR-Bench."""
+    return pd.read_csv(ddr_ref_path(mode))["smiles"].unique().tolist()
 
 
 def evaluate_drug_disease_cohesion(pred_df, target_df, k_list=[1, 5, 10, 25, 50]):
@@ -156,15 +160,7 @@ def submit_drug_disease_cohesion(pred_df, mode='lincs'):
     """
     # Load the disease-drug triples with target signatures
     # Only includes diseases with 2+ unique target signatures for valid evaluation
-    if mode == 'lincs':
-        ref_filename = 'disease_drug_triples_lincs.csv'
-    elif mode == 'full':
-        ref_filename = 'disease_drug_triples.csv'
-    else:
-        raise ValueError(f"Invalid mode: {mode}. Must be 'full' or 'lincs'")
-
-    ref_path = os.path.join(DATA_DIR, 'opentargets/disease_drug_triples_csv', ref_filename)
-    disease_drug_df = pd.read_csv(ref_path)
+    disease_drug_df = pd.read_csv(ddr_ref_path(mode))
 
     # Prepare target_df format expected by evaluate function
     # Columns: smiles, targets, diseaseId
